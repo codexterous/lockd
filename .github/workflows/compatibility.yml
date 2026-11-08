@@ -1,0 +1,186 @@
+name: Compatibility
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_version:
+        description: Release source artifact version; empty uses the checked-out commit
+        type: string
+        default: ''
+      reuse_native:
+        description: Native checks already passed for this exact commit
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+
+jobs:
+  analysis_linux:
+    name: clang-tidy
+    needs: source
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/clang_tidy_linux.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+
+  analysis_windows:
+    name: clang-tidy
+    needs: source
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/clang_tidy_windows.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+
+  source:
+    name: Package test source
+    permissions:
+      contents: write
+    if: inputs.source_version == ''
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      python_matrix: ${{ steps.metadata.outputs.python_matrix }}
+    steps:
+      - name: Check out compatibility source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Install Python development tools
+        id: python_tools
+        run: |
+          python -m pip install --upgrade 'pip>=25.1'
+          python -m pip install --group dev
+      - name: Check Python lint
+        run: git ls-files -z -- '*.py' | xargs -0 python -m ruff check --
+      - name: Check Python formatting
+        if: ${{ !cancelled() && steps.python_tools.outcome == 'success' }}
+        run: git ls-files -z -- '*.py' | xargs -0 python -m ruff format --check --
+      - name: Test packaging
+        run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Assign or recover the build version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALLOCATE_VERSION: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+        run: python scripts/release/build_version.py
+      - name: Read package versions
+        id: metadata
+        run: python scripts/release/package.py metadata >> "$GITHUB_OUTPUT"
+      - name: Export committed source
+        run: python scripts/release/package.py source
+      - name: Preserve the build version assignment
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: build_version_${{ steps.metadata.outputs.version }}
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/release/build_version.txt
+          retention-days: 90
+          if-no-files-found: error
+      - name: Upload source tarball
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  wheels_linux:
+    name: Python - Linux
+    needs: source
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/release_python.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+      python_matrix: ${{ needs.source.outputs.python_matrix }}
+
+  wheels_windows:
+    name: Python - Windows
+    needs: [source, windows]
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/release_python_windows.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+      python_matrix: ${{ needs.source.outputs.python_matrix }}
+
+  tested_python:
+    name: Preserve tested Python wheels
+    needs: [source, analysis_linux, analysis_windows, windows, windows_services, wheels_linux, wheels_windows, linux, freebsd]
+    if: success() && inputs.source_version == ''
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out package validation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download tested packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release_*
+          merge-multiple: true
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Validate complete package set and versions
+        env:
+          LOCKD_RELEASE_VERSION: ${{ needs.source.outputs.version }}
+        run: python scripts/release/package.py checksums
+      - name: Retain validated wheels for release
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tested_python
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+          retention-days: 14
+          if-no-files-found: error
+
+  windows:
+    name: Compatibility Testing - Windows
+    needs: source
+
+    # Release already runs this matrix separately against its source artifact.
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/release_windows.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+
+  windows_services:
+    name: Service Testing - Windows
+    needs: [source, windows]
+    if: inputs.source_version == ''
+    uses: ./.github/workflows/windows_services.yml
+    with:
+      source_version: ${{ needs.source.outputs.version }}
+
+  linux:
+    name: Compatibility Testing - Linux
+    needs: [source, wheels_linux]
+    if: >-
+      !cancelled() && (inputs.source_version != '' ||
+      (needs.source.result == 'success' && needs.wheels_linux.result == 'success'))
+    uses: ./.github/workflows/compatibility_linux.yml
+    with:
+      source_version: ${{ inputs.source_version || needs.source.outputs.version }}
+      reuse_native: ${{ inputs.reuse_native == true }}
+
+  freebsd:
+    name: Compatibility Testing - FreeBSD
+    needs: source
+    if: >-
+      !cancelled() && !inputs.reuse_native &&
+      (inputs.source_version != '' ||
+       (needs.source.result == 'success'))
+    uses: ./.github/workflows/freebsd.yml
+    with:
+      source_version: ${{ inputs.source_version || needs.source.outputs.version }}

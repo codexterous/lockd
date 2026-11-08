@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+# Match the build's dependency discovery, including older FindBoost-only installations.
+set(Boost_USE_STATIC_LIBS @Boost_USE_STATIC_LIBS@)
+set(lockd_STATIC_RUNTIME @LOCKD_STATIC_RUNTIME@)
+set(lockd_MSVC_RUNTIME_LIBRARY "@CMAKE_MSVC_RUNTIME_LIBRARY@")
+if (MSVC AND lockd_STATIC_RUNTIME)
+    set(Boost_USE_STATIC_RUNTIME ON)
+endif ()
+include("${CMAKE_CURRENT_LIST_DIR}/lockd_boost.cmake")
+lockd_find_boost()
+include("${CMAKE_CURRENT_LIST_DIR}/lockd_targets.cmake")
+check_required_components(lockd)

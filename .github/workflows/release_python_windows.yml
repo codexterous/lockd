@@ -1,0 +1,195 @@
+name: Release Python Windows
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        required: true
+        type: string
+      python_matrix:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+  LOCKD_HOST_BUILD_DIR: ${{ github.workspace }}/output/obj/x86_64/opt/shared
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  wheels:
+    env:
+      OUTPUT_ARCH: ${{ matrix.arch == 'arm64' && 'arm64' || 'x86_64' }}
+      LOCKD_HOST_BUILD_DIR: ${{ github.workspace }}/output/obj/${{ matrix.arch == 'arm64' && 'arm64' || 'x86_64' }}/opt/shared
+      WHEEL_ARCH: ${{ matrix.arch }}
+      # The ARM runner includes v143 alongside VS 2026; Boost 1.88 supports v143.
+      LOCKD_MSVC_TOOLSET_VERSION: ${{ matrix.arch == 'arm64' && '14.44' || '' }}
+    name: Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(inputs.python_matrix) }}
+        arch: [x86_64, x86, arm64]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out reuse scripts
+        if: inputs.reuse_checks
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Python - Windows / Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+          artifact: release_wheel_${{ matrix.arch }}_${{ matrix.python }}
+          dependencies: ${{ matrix.arch == 'arm64' && 'windows_arm64' || (matrix.python == '3.14' && matrix.arch == 'x86_64' && 'windows_x86_packages' || 'windows_x86_64') }}
+      - name: Set up CPython ${{ matrix.python }}
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.arch == 'x86_64' && 'x64' || matrix.arch }}
+      - name: Download source tarball
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Extract the release source
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          RELEASE_VERSION: ${{ inputs.source_version }}
+        run: |
+          New-Item -ItemType Directory -Force output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source | Out-Null
+          tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$env:RELEASE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+          if ($LASTEXITCODE -ne 0) { throw 'Source extraction failed.' }
+          $buildRoot = Join-Path $PWD "output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$env:RELEASE_VERSION"
+          "BUILD_ROOT=$buildRoot" >> $env:GITHUB_ENV
+      - name: Identify the Windows wheel toolchain
+        if: steps.reuse.outputs.reused != 'true'
+        id: toolchain
+        working-directory: ${{ env.BUILD_ROOT }}
+        run: |
+          . ./scripts/release/windows_environment.ps1 -Architecture $env:WHEEL_ARCH
+          $pythonVersion = & python -c "import sys; print(sys.version)"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect Python.' }
+          $compilerHash = (Get-FileHash -LiteralPath (Get-Command cl.exe).Source -Algorithm SHA256).Hash
+          $identity = "$pythonVersion|$compilerHash|$env:VCToolsVersion|$env:WindowsSDKVersion|$([Environment]::OSVersion.Version)"
+          $hash = [System.Security.Cryptography.SHA256]::Create()
+          try {
+              $digest = [Convert]::ToHexString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity)))
+          }
+          finally { $hash.Dispose() }
+          "digest=$digest" >> $env:GITHUB_OUTPUT
+      - name: Cache compiled Windows wheel dependencies
+        if: steps.reuse.outputs.reused != 'true'
+        id: boost_cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+          key: boost-wheel-windows-v1-${{ matrix.arch }}-${{ matrix.python }}-${{ steps.toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/build_boost_python.ps1', 'output/obj/*/opt/shared/source/**/windows_environment.ps1') }}
+      - name: Cache Boost.Python source archive
+        id: boost_source_cache
+        if: steps.reuse.outputs.reused != 'true' && (steps.boost_cache.outputs.cache-hit != 'true')
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.LOCKD_HOST_BUILD_DIR }}/dependencies/release/boost_1_88_0.tar.gz
+          key: boost-source-1.88.0-3621533e820dcab1-v1
+      - name: Restore compiled Windows wheel dependencies
+        if: steps.reuse.outputs.reused != 'true' && (steps.boost_cache.outputs.cache-hit == 'true')
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          $suffix = if ($env:WHEEL_ARCH -eq 'x86_64') { '' } else { "_$env:WHEEL_ARCH" }
+          $prefix = Join-Path $env:LOCKD_HOST_BUILD_DIR ("dependencies/release/boost_python" + $env:PYTHON_VERSION.Replace('.', '') + $suffix)
+          New-Item -ItemType Directory -Force $prefix | Out-Null
+          Copy-Item -Path 'output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel/*' -Destination $prefix -Recurse
+      - name: Build Windows Python ${{ matrix.python }} wheel
+        if: steps.reuse.outputs.reused != 'true'
+        working-directory: ${{ env.BUILD_ROOT }}
+        env:
+          LOCKD_BOOST_CACHE_HIT: ${{ steps.boost_cache.outputs.cache-hit }}
+        run: ./scripts/release/build_windows_wheel.ps1
+      - name: Save verified Boost source
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.boost_source_cache.outputs.cache-primary-key != '' && steps.boost_source_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/dependencies/release/.boost-source-verified', env.LOCKD_HOST_BUILD_DIR)) != ''
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.LOCKD_HOST_BUILD_DIR }}/dependencies/release/boost_1_88_0.tar.gz
+          key: ${{ steps.boost_source_cache.outputs.cache-primary-key }}
+      - name: Preserve compiled Windows wheel dependencies
+        id: preserve_boost
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.boost_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/dependencies/release/.boost-cache-ready', env.LOCKD_HOST_BUILD_DIR)) != ''
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          $suffix = if ($env:WHEEL_ARCH -eq 'x86_64') { '' } else { "_$env:WHEEL_ARCH" }
+          $prefix = Join-Path $env:LOCKD_HOST_BUILD_DIR ("dependencies/release/boost_python" + $env:PYTHON_VERSION.Replace('.', '') + $suffix)
+          New-Item -ItemType Directory -Force output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel | Out-Null
+          Copy-Item -Path "$prefix/*" -Destination output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel -Recurse
+      - name: Save compiled wheel dependencies
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.preserve_boost.outcome == 'success' && steps.boost_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+          key: ${{ steps.boost_cache.outputs.cache-primary-key }}
+      - name: Download Windows archives for wheel testing
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: ${{ matrix.arch == 'arm64' && 'release_windows_arm64' || (matrix.python == '3.14' && matrix.arch == 'x86_64' && 'release_windows_x86*' || 'release_windows_x86_64') }}
+          merge-multiple: true
+          path: ${{ env.BUILD_ROOT }}/output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Test Windows Python ${{ matrix.python }} wheel and extracted executables
+        if: steps.reuse.outputs.reused != 'true'
+        working-directory: ${{ env.BUILD_ROOT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dependencies = Join-Path $env:LOCKD_HOST_BUILD_DIR 'dependencies/release'
+          $builds = Join-Path $PWD 'lib/pylockd/output/obj'
+
+          # Hide both the Boost installation and compiled extensions. Tests use a fresh
+          # virtual environment and extracted executables, without the build shell's PATH.
+          Move-Item -LiteralPath $dependencies -Destination "$dependencies-unavailable"
+          try {
+              Move-Item -LiteralPath $builds -Destination "$builds-unavailable"
+              try {
+                  ./scripts/release/test_windows.ps1 -DistributionDirectory (Join-Path $PWD 'output/${{ env.OUTPUT_ARCH }}/opt/static') `
+                      -WheelDirectory (Join-Path $PWD 'lib/pylockd/output/${{ matrix.arch }}/opt/static') `
+                      -SkipNativeTests:('${{ matrix.python }}' -ne '3.14' -or '${{ matrix.arch }}' -ne 'x86_64')
+              }
+              finally {
+                  Move-Item -LiteralPath "$builds-unavailable" -Destination $builds
+              }
+          }
+          finally {
+              Move-Item -LiteralPath "$dependencies-unavailable" -Destination $dependencies
+          }
+      - name: Preserve wheel configuration diagnostics
+        if: steps.reuse.outputs.reused != 'true' && (failure())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: wheel_diagnostics_${{ matrix.arch }}_${{ matrix.python }}
+          path: ${{ env.BUILD_ROOT }}/lib/pylockd/output/obj/**/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+      - name: Upload tested Windows Python ${{ matrix.python }} wheel
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release_wheel_${{ matrix.arch }}_${{ matrix.python }}
+          retention-days: 14
+          path: ${{ env.BUILD_ROOT }}/lib/pylockd/output/${{ matrix.arch }}/opt/static/*.whl
+          if-no-files-found: error

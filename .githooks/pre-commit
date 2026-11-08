@@ -1,0 +1,59 @@
+#!/bin/sh
+# Inspect staged C/C++ changes without modifying either the index or working files.
+set -eu
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+if [ "${1-}" = --check-files ]; then
+    temporary=$2
+    formatter=$3
+    shift 3
+    for path do
+        case "$path" in
+            output/*|*/output/*) continue ;;
+            *.c|*.C|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp|*.hxx) ;;
+            *) continue ;;
+        esac
+        git show ":$path" > "$temporary/staged"
+        git diff --cached --no-ext-diff --no-textconv --unified=0 -- "$path" > "$temporary/diff"
+        awk '/^@@ / {
+            split($3, range, ","); sub(/^\+/, "", range[1]);
+            count = (range[2] == "" ? 1 : range[2]);
+            if (count > 0) print "--lines=" range[1] ":" range[1] + count - 1;
+        }' "$temporary/diff" > "$temporary/ranges"
+        set --
+        while IFS= read -r range; do set -- "$@" "$range"; done < "$temporary/ranges"
+        [ "$#" -gt 0 ] || continue
+        "$formatter" --style=file --fallback-style=none --assume-filename="$path" "$@" \
+            < "$temporary/staged" > "$temporary/formatted"
+        if ! cmp -s "$temporary/staged" "$temporary/formatted"; then
+            printf '\nFormatting changes required in staged file: %s\n' "$path" >&2
+            diff -u "$temporary/staged" "$temporary/formatted" || true
+            printf 'Review formatting, then stage the intended changes and retry.\n' >&2
+            exit 1
+        fi
+    done
+    exit 0
+fi
+
+formatter=${CLANG_FORMAT:-$(git config --get lockd.clangFormat || true)}
+if [ -z "$formatter" ]; then formatter=clang-format; fi
+version=$("$formatter" --version) || {
+    printf 'Install clang-format 20+ or set CLANG_FORMAT (or git config lockd.clangFormat).\n' >&2
+    exit 1
+}
+major=$(printf '%s\n' "$version" | sed -n 's/.*version \([0-9][0-9]*\).*/\1/p')
+if [ -z "$major" ] || [ "$major" -lt 20 ]; then
+    printf 'clang-format 20+ is required; found: %s\n' "$version" >&2
+    exit 1
+fi
+if ! git diff --quiet -- .clang-format || ! git cat-file -e :.clang-format 2>/dev/null; then
+    printf 'Stage .clang-format before committing so the checked style matches the commit.\n' >&2
+    exit 1
+fi
+mkdir -p output/obj
+temporary=$(mktemp -d "$root/output/obj/format.XXXXXX")
+trap 'rm -f "$temporary/staged" "$temporary/formatted" "$temporary/diff" "$temporary/ranges" "$temporary/paths"; rmdir "$temporary"' EXIT HUP INT TERM
+git diff --cached --name-only --diff-filter=ACMR -z > "$temporary/paths"
+xargs -0 sh "$root/.githooks/pre-commit" --check-files "$temporary" "$formatter" \
+    < "$temporary/paths"

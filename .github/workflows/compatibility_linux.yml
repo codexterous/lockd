@@ -1,0 +1,117 @@
+name: Linux compatibility tests
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        description: Version of the release_source artifact
+        type: string
+        required: true
+      reuse_native:
+        description: Native checks already passed for this exact commit
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+
+jobs:
+  tests:
+    env:
+      OUTPUT_ARCH: ${{ matrix.runner == 'ubuntu-24.04-arm' && 'arm64' || 'x86_64' }}
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ matrix.timeout || 60 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Reviewed 2026-10-25. See COMPATIBILITY.md for eligibility and sources.
+        include:
+          - {name: Debian 13, image: 'debian:13', packages: apt}
+          - {name: Ubuntu 24.04, image: 'ubuntu:24.04', packages: apt}
+          - {name: Ubuntu 26.10, image: 'ubuntu:26.10', packages: apt}
+          - {name: Fedora 43, image: 'fedora:43', packages: dnf}
+          - {name: Fedora 44, image: 'fedora:44', packages: dnf}
+          - {name: CentOS Stream 10, image: 'quay.io/centos/centos:stream10', packages: dnf-crb}
+          - {name: Rocky Linux 10, image: 'rockylinux/rockylinux:10', packages: dnf-crb}
+          - {name: openSUSE Leap 16.0, image: 'opensuse/leap:16.0', packages: zypper}
+          - {name: Arch Linux current, image: 'archlinux:base', packages: pacman}
+          - name: Raspberry Pi OS Trixie arm64
+            image: lockd-raspberry-pi-ci
+            packages: apt
+            runner: ubuntu-24.04-arm
+            timeout: 90
+    steps:
+      - name: Check out compatibility scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Compatibility Testing - Linux / ${{ matrix.name }}
+          dependencies: linux_wheels
+      - name: Download release source
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Prepare Raspberry Pi OS container image
+        if: steps.reuse.outputs.reused != 'true' && (matrix.image == 'lockd-raspberry-pi-ci')
+        run: bash scripts/release/prepare_raspberry_pi.sh
+      - name: Download Linux wheels for distro testing
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release_linux_*
+          merge-multiple: true
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/linux_wheels
+      - name: Build and test in the distro container
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          SOURCE_VERSION: ${{ inputs.source_version }}
+          TEST_WHEELS: 'true'
+          DISTRO_IMAGE: ${{ matrix.image }}
+          PACKAGE_MANAGER: ${{ matrix.packages }}
+          REUSE_NATIVE: ${{ inputs.reuse_native }}
+        run: |
+          build_root="$GITHUB_WORKSPACE"
+          if [ -n "$SOURCE_VERSION" ]; then
+            mkdir -p output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+            tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$SOURCE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+            build_root="$GITHUB_WORKSPACE/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$SOURCE_VERSION"
+          fi
+          container=$(docker run -d -v "$build_root:/src" \
+            -v "$GITHUB_WORKSPACE/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/linux_wheels:/wheels:ro" \
+            -w /src "$DISTRO_IMAGE" sleep infinity)
+          trap 'docker rm -f "$container"' EXIT
+          docker exec "$container" cat /etc/os-release
+          docker exec -e GITHUB_ACTIONS=true "$container" sh scripts/release/install_linux_ci.sh "$PACKAGE_MANAGER" "$TEST_WHEELS"
+          # Test as the checkout owner, not root, so permission checks remain meaningful.
+          if [ "$REUSE_NATIVE" = true ]; then
+            docker exec --user "$(id -u):$(id -g)" "$container" sh scripts/release/test_posix.sh --daemon-only
+          else
+            docker exec --user "$(id -u):$(id -g)" "$container" sh scripts/release/test_posix.sh
+          fi
+          docker exec --user "$(id -u):$(id -g)" "$container" sh scripts/release/test_linux_distribution.sh
+      - name: Preserve Linux configuration and test diagnostics
+        if: steps.reuse.outputs.reused != 'true' && (failure())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: compatibility_${{ strategy.job-index }}
+          path: |
+            output/**/CMakeConfigureLog.yaml
+            output/**/Testing/Temporary/
+          if-no-files-found: ignore

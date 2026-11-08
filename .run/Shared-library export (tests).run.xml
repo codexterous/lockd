@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Shared-library export (tests)" type="CMakeRunConfiguration" factoryName="Application" folderName="Testing" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="true" PASS_PARENT_ENVS_2="true" PROJECT_NAME="lockd" TARGET_NAME="lockd_shared_test" CONFIG_NAME="x86-dbg-shared" RUN_TARGET_PROJECT_NAME="lockd" RUN_TARGET_NAME="lockd_shared_test">
+    <envs>
+      <env name="CONSOLE_WIDTH" value="200" />
+    </envs>
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

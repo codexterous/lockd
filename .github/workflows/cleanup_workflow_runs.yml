@@ -1,0 +1,32 @@
+name: Clean up failed and cancelled workflow runs
+
+on:
+  workflow_run:
+    workflows: [Compatibility, Release]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: cleanup-${{ github.event.workflow_run.workflow_id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete superseded failures and cancellations
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      # workflow_run uses trusted default-branch code, never the triggering checkout.
+      - name: Check out cleanup tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Delete older failed and cancelled runs on this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/cleanup_workflow_runs.py

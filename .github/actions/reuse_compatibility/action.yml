@@ -1,0 +1,53 @@
+name: Reuse compatibility result
+description: Restore a successful job and its tested packages for the exact release commit
+inputs:
+  version:
+    description: Assigned version of the checked-out source
+    required: true
+  job:
+    description: Exact compatibility job display name
+    required: true
+  artifact:
+    description: Required output artifact, if the job produces a package
+    default: ''
+  dependencies:
+    description: Package dependency group from the reuse plan
+    default: ''
+outputs:
+  reused:
+    description: Whether this job's completed checks and output were reused
+    value: ${{ steps.select.outputs.reused == 'true' && (inputs.artifact == '' || steps.download.outcome == 'success') }}
+runs:
+  using: composite
+  steps:
+    - name: Download compatibility reuse decisions
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      with:
+        name: compatibility_reuse
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/reuse
+    - name: Select this compatibility result
+      id: select
+      shell: bash
+      env:
+        REUSE_VERSION: ${{ inputs.version }}
+        REUSE_JOB: ${{ inputs.job }}
+        REUSE_ARTIFACT: ${{ inputs.artifact }}
+        REUSE_DEPENDENCIES: ${{ inputs.dependencies }}
+      run: python scripts/release/reuse_part.py
+    - name: Download the original tested package
+      id: download
+      if: steps.select.outputs.reused == 'true' && inputs.artifact != ''
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      with:
+        github-token: ${{ github.token }}
+        run-id: ${{ steps.select.outputs.run }}
+        name: ${{ inputs.artifact }}
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/reuse/package
+    - name: Preserve the tested package for release
+      if: steps.select.outputs.reused == 'true' && inputs.artifact != ''
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: ${{ inputs.artifact }}
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/reuse/package/*
+        retention-days: 14
+        if-no-files-found: error

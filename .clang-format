@@ -1,0 +1,52 @@
+# C++17 conventions from AGENTS.md. Keep deliberate include ordering and comment layout;
+# dependency-sensitive includes and manually arranged grammars require human review.
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+ContinuationIndentWidth: 8
+NamespaceIndentation: None
+AccessModifierOffset: -4
+IndentCaseLabels: false
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterStruct: true
+  AfterNamespace: false
+  AfterControlStatement: Never
+  BeforeElse: true
+  BeforeCatch: true
+  BeforeLambdaBody: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: true
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+AlignConsecutiveDeclarations: None
+AlignAfterOpenBracket: BlockIndent
+BinPackArguments: false
+BinPackParameters: false
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 8
+PackConstructorInitializers: Never
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+SpaceBeforeParens: ControlStatements
+MaxEmptyLinesToKeep: 2
+EmptyLineBeforeAccessModifier: Never
+ReflowComments: false
+SortIncludes: Never
+IncludeBlocks: Preserve
+FixNamespaceComments: false
+IndentPPDirectives: AfterHash
+PPIndentWidth: 1

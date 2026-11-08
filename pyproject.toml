@@ -1,0 +1,87 @@
+[build-system]
+requires = ["scikit-build-core>=1.0,<2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pylockd"
+dynamic = ["version"]
+description = "lockd is a distributed locking and synchronization daemon; pylockd provides its Python bindings."
+readme = "PYTHON.md"
+requires-python = ">=3.11,<3.16"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+license = "MIT"
+license-files = ["lib/pylockd/license.txt"]
+
+[project.urls]
+Homepage = "https://github.com/codexterous/lockd/"
+
+[dependency-groups]
+dev = ["ruff"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["output", ".private"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+cmake.build-type = "Release"
+build.targets = ["pylockd"]
+# Python ABIs need separate caches even when architecture, profile, and linkage agree.
+build-dir = "lib/pylockd/output/obj/{wheel_tag}/opt/static"
+install.components = ["python"]
+wheel.packages = []
+
+# Keep the documentation together so relative links also work after installation.
+[tool.scikit-build.wheel.force-include]
+"README.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/README.md"
+"BENCHMARKING.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/BENCHMARKING.md"
+"BUILDING.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/BUILDING.md"
+"COMPATIBILITY.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/COMPATIBILITY.md"
+"CONTRIBUTING.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/CONTRIBUTING.md"
+"DLL.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/DLL.md"
+"FREEBSD.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/FREEBSD.md"
+"LICENSE.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/LICENSE.md"
+"PROTOCOL.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/PROTOCOL.md"
+"PYTHON.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/PYTHON.md"
+"RUNNING.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/RUNNING.md"
+"SECURITY.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/SECURITY.md"
+"TESTING.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/TESTING.md"
+"USAGE.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/USAGE.md"
+"WINDOWS.md" = "${SKBUILD_DATA_DIR}/share/doc/pylockd/WINDOWS.md"
+
+[tool.scikit-build.cmake.define]
+BUILD_TESTING = "OFF"
+BUILD_SHARED_LIBS = "OFF"
+LOCKD_STATIC_RUNTIME = "OFF"
+LOCKD_BUILD_PYTHON = "ON"
+
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.regex"
+field = "version"
+input = "cmake/version.txt"
+regex = '^(?P<value>[0-9]+\.[0-9]+\.[0-9]+(?:\.dev0)?)\s*$'
+
+[tool.scikit-build.sdist]
+inclusion-mode = "explicit"
+include = [
+    "pyproject.toml", "CMakeLists.txt", "CMakePresets.json", "README.md", "vcpkg.json",
+    "cmake/**", "include/**", "source/**",
+    "lib/*/CMakeLists.txt", "lib/*/include/**", "lib/*/source/**",
+    "BENCHMARKING.md", "BUILDING.md", "COMPATIBILITY.md", "CONTRIBUTING.md", "DLL.md", "FREEBSD.md", "LICENSE.md",
+    "PROTOCOL.md", "PYTHON.md", "RUNNING.md", "SECURITY.md", "TESTING.md", "USAGE.md", "WINDOWS.md",
+    "lib/pylockd/license.txt",
+    "lib/pylockd/tests/*.py", "utility/lockd_test/include/**",
+    "utility/lockd_test/CMakeLists.txt", "utility/lockd_test/source/**",
+]
+exclude = ["**/__pycache__/**", "**/output/**"]

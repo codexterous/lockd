@@ -1,0 +1,45 @@
+{
+  "name" : "lockd",
+  "version-string" : "1.0.0",
+  "builtin-baseline" : "ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0",
+  "features" : {
+    "python" : {
+      "description" : "Build the optional Python extension",
+      "dependencies" : [ {
+        "name" : "boost-python",
+        "version>=" : "1.82.0#2"
+      } ]
+    }
+  },
+  "dependencies" : [ {
+    "name" : "boost-uuid",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-asio",
+    "version>=" : "1.82.0#3"
+  }, {
+    "name" : "boost-program-options",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-system",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-format",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-spirit",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-date-time",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-test",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-process",
+    "version>=" : "1.82.0#2"
+  }, {
+    "name" : "boost-log",
+    "version>=" : "1.82.0#2"
+  } ]
+}

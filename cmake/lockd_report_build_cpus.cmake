@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.24)
+
+include(ProcessorCount)
+ProcessorCount(logical_cpus)
+if (logical_cpus EQUAL 0)
+    message(STATUS "Detected logical CPUs: unavailable")
+else ()
+    message(STATUS "Detected logical CPUs: ${logical_cpus}")
+endif ()
+message(STATUS "Configured parallel build jobs: ${LOCKD_BUILD_JOBS}")

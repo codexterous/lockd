@@ -1,0 +1,337 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs publish the selected commit's already assigned version.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OUTPUT_ARCH: x86_64
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  source:
+    name: Package test source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+      version: ${{ steps.metadata.outputs.version }}
+      python_version: ${{ steps.metadata.outputs.python_version }}
+      python_matrix: ${{ steps.metadata.outputs.python_matrix }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Check for active compatibility runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release/reuse_checks.py --check-idle
+      - name: Install Python development tools
+        id: python_tools
+        run: |
+          python -m pip install --upgrade 'pip>=25.1'
+          python -m pip install --group dev
+      - name: Check Python lint
+        run: git ls-files -z -- '*.py' | xargs -0 python -m ruff check --
+      - name: Check Python formatting
+        if: ${{ !cancelled() && steps.python_tools.outcome == 'success' }}
+        run: git ls-files -z -- '*.py' | xargs -0 python -m ruff format --check --
+      - name: Test packaging
+        run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Recover the assigned build version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_ASSIGNED_VERSION: 'true'
+        run: python scripts/release/build_version.py
+      - name: Validate release versions
+        id: metadata
+        shell: bash
+        run: |
+          arguments=()
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            arguments+=(--tag "$GITHUB_REF_NAME")
+          fi
+          python scripts/release/package.py metadata "${arguments[@]}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Plan reuse of individual compatibility jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release/reuse_checks.py --plan
+      - name: Preserve compatibility reuse decisions
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: compatibility_reuse
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/release/reuse_plan.json
+          if-no-files-found: error
+      - name: Export committed source
+        run: python scripts/release/package.py source
+      - name: Upload source tarball
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*.tar.gz
+          if-no-files-found: error
+
+  analysis_linux:
+    name: clang-tidy
+    needs: source
+    uses: ./.github/workflows/clang_tidy_linux.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  analysis_windows:
+    name: clang-tidy
+    needs: source
+    uses: ./.github/workflows/clang_tidy_windows.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  windows:
+    name: Compatibility Testing - Windows
+    needs: source
+    uses: ./.github/workflows/release_windows.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  wheels_linux:
+    name: Python - Linux
+    needs: source
+    uses: ./.github/workflows/release_python.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+      python_matrix: ${{ needs.source.outputs.python_matrix }}
+
+  wheels_windows:
+    name: Python - Windows
+    needs: [source, windows]
+    uses: ./.github/workflows/release_python_windows.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+      python_matrix: ${{ needs.source.outputs.python_matrix }}
+
+  windows_services:
+    name: Service Testing - Windows
+    needs: [source, windows]
+    uses: ./.github/workflows/windows_services.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  linux:
+    name: Compatibility Testing - Linux
+    needs: [source, wheels_linux]
+    uses: ./.github/workflows/compatibility_linux.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  freebsd:
+    name: Compatibility Testing - FreeBSD
+    needs: source
+    uses: ./.github/workflows/freebsd.yml
+    with:
+      reuse_checks: true
+      source_version: ${{ needs.source.outputs.version }}
+
+  tested_python:
+    name: Preserve tested Python wheels
+    needs: [source, analysis_linux, analysis_windows, windows, windows_services, wheels_linux, wheels_windows, linux, freebsd]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out package validation
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download tested packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release_*
+          merge-multiple: true
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Validate complete package set and versions
+        env:
+          LOCKD_RELEASE_VERSION: ${{ needs.source.outputs.version }}
+        run: python scripts/release/package.py checksums
+      - name: Retain validated wheels for release
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tested_python
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+          retention-days: 14
+          if-no-files-found: error
+
+  assemble:
+    name: Assemble release assets
+    needs: [source, analysis_linux, analysis_windows, windows, windows_services, wheels_linux, wheels_windows, linux, freebsd, tested_python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download release packages for checksums
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release_*
+          merge-multiple: true
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Check complete asset set
+        env:
+          LOCKD_RELEASE_VERSION: ${{ needs.source.outputs.version }}
+        run: python scripts/release/package.py checksums
+      - name: Upload tested release assets
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tested_release
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*
+          if-no-files-found: error
+
+  publish_python:
+    name: Publish wheels to PyPI
+    needs: [source, assemble]
+    if: >-
+      !cancelled() && needs.assemble.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check PyPI credentials
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [[ -z "$PYPI_API_TOKEN" ]]; then
+            echo 'Set PYPI_API_TOKEN to a package-upload API token in repository secrets.' >&2
+            exit 1
+          fi
+      - name: Download validated Python wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: tested_python
+          path: lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Upload validated wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          repository-url: https://upload.pypi.org/legacy/
+          packages-dir: lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static/
+          # Keep upload status and errors without response bodies or wheel hashes.
+          verbose: false
+          print-hash: false
+          # API-token publishing does not use Trusted Publishing attestations.
+          attestations: false
+          # Complete partial uploads when this publishing job is retried.
+          skip-existing: true
+
+  publish:
+    name: Publish release
+    needs: [source, assemble]
+    if: >-
+      !cancelled() && needs.assemble.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - name: Download tested release assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: tested_release
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Publish tested assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ needs.source.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
+        run: |
+          cd output/${{ env.OUTPUT_ARCH }}/opt/static
+          sha256sum --check SHA256SUMS
+          python ../../../../scripts/release/release_tag.py
+          assets=()
+          for file in ./*; do
+            case "$file" in
+              *-windows-arm64-portable.zip) label='Windows ARM64 - Portable ZIP' ;;
+              *-windows-arm64-setup.exe) label='Windows ARM64 - Installer' ;;
+              *-windows-x86-portable.zip) label='Windows x86 - Portable ZIP' ;;
+              *-windows-x86_64-portable.zip) label='Windows x86_64 - Portable ZIP' ;;
+              *-windows-x86-setup.exe) label='Windows x86 - Installer' ;;
+              *-windows-x86_64-setup.exe) label='Windows x86_64 - Installer (Recommended)' ;;
+              *) label="${file#./}" ;;
+            esac
+            assets+=("$file#$label")
+          done
+
+          # Keep partial uploads private. A failed upload leaves a draft for inspection.
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --verify-tag --draft --title "lockd $RELEASE_TAG" --generate-notes
+          gh release edit "$RELEASE_TAG" --draft=false
+
+  release_branch:
+    name: Create published release branch
+    needs: [source, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create releases branch at the published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ needs.source.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          branch="releases/$RELEASE_TAG"
+
+          # Rerunning this job is safe, but must never move an existing release branch.
+          if existing=$(gh api "repos/$GH_REPO/git/ref/heads/$branch" --jq .object.sha); then
+            if [ "$existing" != "$RELEASE_COMMIT" ]; then
+              echo "Branch $branch already exists at a different commit." >&2
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f "ref=refs/heads/$branch" -f "sha=$RELEASE_COMMIT"
+          fi

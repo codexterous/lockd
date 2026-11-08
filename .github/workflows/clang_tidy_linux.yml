@@ -1,0 +1,44 @@
+name: clang-tidy Linux
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        description: Version of the release_source artifact
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+
+jobs:
+  analyze:
+    name: Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out analysis source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: clang-tidy / Linux
+      - name: Install analysis dependencies
+        if: steps.reuse.outputs.reused != 'true'
+        uses: ./.github/actions/linux_analysis_dependencies
+      - name: Analyze all Linux components
+        if: steps.reuse.outputs.reused != 'true'
+        run: sh scripts/release/analyze_linux.sh

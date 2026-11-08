@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="clang-format (whole project)" type="PythonConfigurationType" factoryName="Python" folderName="Formatting">
+    <module name="lockd" />
+    <option name="PARENT_ENVS" value="true" />
+    <option name="SDK_HOME" value="" />
+    <option name="IS_MODULE_SDK" value="true" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/clang_format.py" />
+    <option name="PARAMETERS" value="" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <method v="2" />
+  </configuration>
+</component>

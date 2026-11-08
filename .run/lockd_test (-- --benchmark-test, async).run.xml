@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="lockd_test (-- --benchmark-test, async)" type="CMakeRunConfiguration" factoryName="Application" folderName="Testing" PROGRAM_PARAMS="-- --benchmark-test --engine=async -i localhost -p 7198 -t 32 --duration 120 --results &quot;$PROJECT_DIR$/utility/lockd_test/output/x86_64/opt/shared/benchmark-async.csv&quot; --connections 100" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="true" PASS_PARENT_ENVS_2="true" PROJECT_NAME="lockd" TARGET_NAME="lockd_test" CONFIG_NAME="x86-dbg-static" RUN_TARGET_PROJECT_NAME="lockd" RUN_TARGET_NAME="lockd_test">
+    <envs>
+      <env name="CONSOLE_WIDTH" value="200" />
+    </envs>
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

@@ -1,0 +1,57 @@
+name: Linux analysis dependencies
+description: Reuse Ubuntu package downloads while resolving current analysis dependencies.
+runs:
+  using: composite
+  steps:
+    - name: Enable the LLVM 23 package repository
+      shell: bash
+      run: |
+        curl --fail --silent --show-error --location https://apt.llvm.org/llvm-snapshot.gpg.key -o "$RUNNER_TEMP/llvm.asc"
+        sudo install -m 0644 "$RUNNER_TEMP/llvm.asc" /usr/share/keyrings/llvm.asc
+        echo 'deb [signed-by=/usr/share/keyrings/llvm.asc] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main' | sudo tee /etc/apt/sources.list.d/llvm-23.list
+    - name: Resolve analysis package versions
+      id: packages
+      shell: bash
+      run: |
+        sudo apt-get update
+        packages=(ninja-build clang-tidy-23 libboost-log-dev libboost-program-options-dev
+                  libboost-filesystem-dev libboost-python-dev python3-dev)
+        archives="$GITHUB_WORKSPACE/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/dependencies/analysis-apt"
+        mkdir -p "$archives"
+
+        # Resolve before restoring archives so the key includes every required download.
+        # Hash filenames, sizes and checksums, excluding mirror addresses and apt's prose.
+        sudo apt-get --print-uris -y install "${packages[@]}" > "$archives/plan.txt"
+        digest=$(awk '/^\047/ {print $2, $3, $4}' "$archives/plan.txt" | sha256sum | cut -d ' ' -f 1)
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        echo "names=${packages[*]}" >> "$GITHUB_OUTPUT"
+        echo "archives=$archives" >> "$GITHUB_OUTPUT"
+    - name: Restore analysis package downloads
+      id: cache
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ steps.packages.outputs.archives }}/*.deb
+        key: analysis-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.packages.outputs.digest }}
+        restore-keys: analysis-apt-v1-${{ runner.os }}-${{ runner.arch }}-
+    - name: Download missing analysis packages
+      shell: bash
+      env:
+        PACKAGES: ${{ steps.packages.outputs.names }}
+        ARCHIVES: ${{ steps.packages.outputs.archives }}
+      run: |
+        read -r -a packages <<< "$PACKAGES"
+        sudo apt-get -o "Dir::Cache::archives=$ARCHIVES" --download-only -y install "${packages[@]}"
+    - name: Save analysis packages before installation
+      if: always() && steps.cache.outputs.cache-primary-key != '' && steps.cache.outputs.cache-hit != 'true' && hashFiles('output/obj/*/opt/shared/dependencies/analysis-apt/*.deb') != ''
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ steps.packages.outputs.archives }}/*.deb
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+    - name: Install analysis packages
+      shell: bash
+      env:
+        PACKAGES: ${{ steps.packages.outputs.names }}
+        ARCHIVES: ${{ steps.packages.outputs.archives }}
+      run: |
+        read -r -a packages <<< "$PACKAGES"
+        sudo apt-get -o "Dir::Cache::archives=$ARCHIVES" --no-download -y install "${packages[@]}"

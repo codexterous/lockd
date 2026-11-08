@@ -1,0 +1,67 @@
+name: clang-tidy Windows
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        description: Version of the release_source artifact
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+  LOCKD_HOST_BUILD_DIR: ${{ github.workspace }}/output/obj/x86_64/opt/shared
+
+jobs:
+  analyze:
+    name: Windows
+    runs-on: windows-2022
+    env:
+      BUILD_ARCH: x86_64
+      BUILD_LINKAGE: shared
+      PYTHON_VERSION: '3.14'
+    steps:
+      - name: Check out analysis source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: clang-tidy / Windows
+      - name: Set up CPython 3.14
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+          architecture: x64
+      - name: Download source tarball
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Extract analysis source
+        if: steps.reuse.outputs.reused != 'true'
+        shell: pwsh
+        env:
+          SOURCE_VERSION: ${{ inputs.source_version }}
+        run: |
+          New-Item -ItemType Directory -Force output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source | Out-Null
+          tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$env:SOURCE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+          if ($LASTEXITCODE -ne 0) { throw 'Source extraction failed.' }
+          "BUILD_ROOT=$env:GITHUB_WORKSPACE/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$env:SOURCE_VERSION" >> $env:GITHUB_ENV
+      - name: Run Windows analysis
+        if: steps.reuse.outputs.reused != 'true'
+        uses: ./.github/actions/windows_analysis

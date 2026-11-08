@@ -1,0 +1,23 @@
+root = true
+
+[*.{c,cpp,h,hpp}]
+charset = utf-8
+indent_style = space
+indent_size = 4
+tab_width = 4
+max_line_length = 100
+
+ij_continuation_indent_size = 8
+cpp_keep_blank_lines_in_code = 2
+cpp_keep_blank_lines_in_declarations = 2
+cpp_align_multiline_parameter = true
+cpp_align_multiline_argument = false
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+
+[*.md]
+max_line_length = 100
+ij_wrap_on_typing = true

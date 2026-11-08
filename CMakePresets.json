@@ -1,0 +1,286 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "arm64-dbg-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "ARM64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/arm64/dbg/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "arm64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      }
+    },
+    {
+      "name": "arm64-dbg-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "ARM64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/arm64/dbg/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "arm64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      }
+    },
+    {
+      "name": "arm64-opt-shared",
+      "inherits": "native",
+      "binaryDir": "${sourceDir}/output/obj/arm64/opt/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "arm64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      },
+      "architecture": {
+        "value": "ARM64",
+        "strategy": "external"
+      }
+    },
+    {
+      "name": "arm64-opt-static",
+      "inherits": "native",
+      "binaryDir": "${sourceDir}/output/obj/arm64/opt/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "arm64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      },
+      "architecture": {
+        "value": "ARM64",
+        "strategy": "external"
+      }
+    },
+    {
+      "name": "native",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "BUILD_TESTING": true,
+        "LOCKD_BUILD_PYTHON": "AUTO",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true
+      }
+    },
+    {
+      "name": "x86-dbg-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86/dbg/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "x86",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      }
+    },
+    {
+      "name": "x86-dbg-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86/dbg/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "x86",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      }
+    },
+    {
+      "name": "x86-opt-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86/opt/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "x86",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      }
+    },
+    {
+      "name": "x86-opt-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86/opt/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "x86",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      }
+    },
+    {
+      "name": "x86_64-dbg-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86_64/dbg/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "x86_64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      }
+    },
+    {
+      "name": "x86_64-dbg-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86_64/dbg/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "x86_64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      }
+    },
+    {
+      "name": "x86_64-opt-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86_64/opt/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "x86_64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      }
+    },
+    {
+      "name": "x86_64-opt-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/x86_64/opt/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "x86_64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      }
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "x86-dbg-static",
+      "configurePreset": "x86-dbg-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-dbg-shared",
+      "configurePreset": "x86-dbg-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-opt-static",
+      "configurePreset": "x86-opt-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-opt-shared",
+      "configurePreset": "x86-opt-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86_64-dbg-static",
+      "configurePreset": "x86_64-dbg-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86_64-dbg-shared",
+      "configurePreset": "x86_64-dbg-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86_64-opt-static",
+      "configurePreset": "x86_64-opt-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86_64-opt-shared",
+      "configurePreset": "x86_64-opt-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "arm64-opt-static",
+      "configurePreset": "arm64-opt-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "arm64-opt-shared",
+      "configurePreset": "arm64-opt-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "arm64-dbg-static",
+      "configurePreset": "arm64-dbg-static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "arm64-dbg-shared",
+      "configurePreset": "arm64-dbg-shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+name: Windows service tests
+
+on:
+  workflow_call:
+    inputs:
+      source_version:
+        type: string
+        required: true
+      reuse_checks:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+
+jobs:
+  tests:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 10
+    env:
+      OUTPUT_ARCH: ${{ matrix.arch == 'arm64' && 'arm64' || 'x86_64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x86_64, arm64]
+    steps:
+      - name: Check out service tests
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Service Testing - Windows / ${{ matrix.arch }}
+          dependencies: windows_${{ matrix.arch }}
+      - name: Download tested Windows executables
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_windows_${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/opt/static
+      - name: Test daemon service installation and removal
+        if: steps.reuse.outputs.reused != 'true'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.source_version }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          $archive = "output/$env:BUILD_ARCH/opt/static/lockd-$env:RELEASE_VERSION-windows-$env:BUILD_ARCH-portable.zip"
+          $directory = Join-Path $PWD 'output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/verifications/service tests'
+          Expand-Archive -LiteralPath $archive -DestinationPath $directory
+          ./scripts/release/test_windows_service.ps1 -Directory $directory
+      - name: Preserve service test diagnostics
+        if: steps.reuse.outputs.reused != 'true' && failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows_service_${{ matrix.arch }}_diagnostics
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/verifications/service tests/*.log
+          if-no-files-found: ignore

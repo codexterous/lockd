@@ -1,0 +1,12 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="CppConstParameterInDeclaration" enabled="false" level="WEAK WARNING" enabled_by_default="false" />
+    <inspection_tool class="CppEnforceOverridingDestructorStyle" enabled="false" level="WEAK WARNING" enabled_by_default="false" />
+    <inspection_tool class="CppRedundantAccessSpecifier" enabled="false" level="HINT" enabled_by_default="false" />
+    <inspection_tool class="CppRedundantBaseClassAccessSpecifier" enabled="false" level="HINT" enabled_by_default="false" />
+    <inspection_tool class="CppRedundantQualifier" enabled="false" level="HINT" enabled_by_default="false" />
+    <inspection_tool class="CppTemplateArgumentsCanBeDeduced" enabled="false" level="HINT" enabled_by_default="false" />
+    <inspection_tool class="CppTooWideScopeInitStatement" enabled="false" level="HINT" enabled_by_default="false" />
+  </profile>
+</component>

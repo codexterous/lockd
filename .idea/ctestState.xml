@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CidrCTestProjectState">
+    <ctestState>
+      <lineNumber testId="path:null test:lockd_dll" value="129" />
+      <lineNumber testId="path:null test:lockd_lifetimes" value="128" />
+      <lineNumber testId="path:null test:lockd_protocol" value="124" />
+      <lineNumber testId="path:null test:lockd_service_logging" value="135" />
+    </ctestState>
+  </component>
+</project>

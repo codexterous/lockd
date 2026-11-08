@@ -1,0 +1,78 @@
+name: FreeBSD native tests
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        description: Version of the release_source artifact
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+
+jobs:
+  tests:
+    name: FreeBSD ${{ matrix.release }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['14.4', '15.1']
+    steps:
+      - name: Check out compatibility scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Compatibility Testing - FreeBSD / FreeBSD ${{ matrix.release }}
+      - name: Download release source
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Build and test in a FreeBSD VM
+        if: steps.reuse.outputs.reused != 'true'
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1
+        env:
+          SOURCE_VERSION: ${{ inputs.source_version }}
+        with:
+          release: ${{ matrix.release }}
+          arch: amd64
+          envs: SOURCE_VERSION
+          prepare: |
+            pkg install -y cmake ninja boost-libs
+            pw useradd lockd_ci -m
+          run: |
+            set -eu
+            if [ -n "$SOURCE_VERSION" ]; then
+              mkdir -p output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+              tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$SOURCE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+              cd "output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$SOURCE_VERSION"
+            fi
+            chown -R lockd_ci .
+            su -m lockd_ci -c 'sh scripts/release/test_posix.sh'
+      - name: Preserve FreeBSD configuration and test diagnostics
+        if: steps.reuse.outputs.reused != 'true' && (failure())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: freebsd_${{ matrix.release }}_diagnostics
+          path: |
+            output/**/CMakeConfigureLog.yaml
+            output/**/Testing/Temporary/
+          if-no-files-found: ignore

@@ -1,0 +1,154 @@
+name: Release Python Linux
+
+on:
+  workflow_call:
+    inputs:
+      reuse_checks:
+        description: Reuse successful compatibility jobs for this exact commit and version
+        type: boolean
+        default: false
+      source_version:
+        required: true
+        type: string
+      python_matrix:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUTPUT_ARCH: x86_64
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  wheels:
+    env:
+      OUTPUT_ARCH: ${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'i686' && 'x86' || 'x86_64' }}
+    name: Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(inputs.python_matrix) }}
+        arch: [x86_64, i686, aarch64]
+    steps:
+      - name: Check out reuse scripts
+        if: inputs.reuse_checks
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Python - Linux / Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+          artifact: release_linux_${{ matrix.arch }}_${{ matrix.python }}
+      - name: Download release source
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Extract release source
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          SOURCE_VERSION: ${{ inputs.source_version }}
+        run: |
+          mkdir -p output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+          tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$SOURCE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+          echo "BUILD_ROOT=$GITHUB_WORKSPACE/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$SOURCE_VERSION" >> "$GITHUB_ENV"
+      - name: Identify the manylinux toolchain
+        if: steps.reuse.outputs.reused != 'true'
+        id: toolchain
+        env:
+          WHEEL_ARCH: ${{ matrix.arch }}
+        run: |
+          image="quay.io/pypa/manylinux_2_28_$WHEEL_ARCH"
+          platform=linux/amd64
+          case "$WHEEL_ARCH" in
+            i686) platform=linux/386 ;;
+            aarch64) platform=linux/arm64 ;;
+          esac
+          docker pull --platform "$platform" "$image"
+          digest=$(docker image inspect "$image" --format '{{.Id}}')
+          echo "digest=${digest#sha256:}" >> "$GITHUB_OUTPUT"
+          reference=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')
+          echo "image=$reference" >> "$GITHUB_OUTPUT"
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+      - name: Cache compiled Linux wheel dependencies
+        if: steps.reuse.outputs.reused != 'true'
+        id: boost_cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+          key: boost-wheel-linux-v1-${{ matrix.arch }}-${{ matrix.python }}-${{ steps.toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/build_boost_linux.py') }}
+      - name: Cache Boost source
+        id: boost_source_cache
+        if: steps.reuse.outputs.reused != 'true' && (steps.boost_cache.outputs.cache-hit != 'true')
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.BUILD_ROOT }}/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/dependencies/release/boost_1_88_0.tar.gz
+          key: boost-source-1.88.0-3621533e820dcab1-v1
+      - name: Restore compiled Linux wheel dependencies
+        if: steps.reuse.outputs.reused != 'true' && (steps.boost_cache.outputs.cache-hit == 'true')
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          prefix="$BUILD_ROOT/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/dependencies/release/boost_python${PYTHON_VERSION//./}"
+          mkdir -p "$prefix"
+          cp -a output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel/. "$prefix/"
+      - name: Build and test Linux Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+          WHEEL_ARCH: ${{ matrix.arch }}
+          MANYLINUX_IMAGE: ${{ steps.toolchain.outputs.image }}
+          LOCKD_BOOST_CACHE_HIT: ${{ steps.boost_cache.outputs.cache-hit }}
+        run: |
+          # The official i686 image's entrypoint sets the Linux 32-bit personality.
+          docker run --rm --platform '${{ steps.toolchain.outputs.platform }}' -v "$BUILD_ROOT:/src" -w /src \
+            -e PYTHON_VERSION -e WHEEL_ARCH -e PYTHONDONTWRITEBYTECODE=1 \
+            -e LOCKD_BOOST_CACHE_HIT "$MANYLINUX_IMAGE" \
+            bash scripts/release/build_manylinux.sh
+      - name: Save verified Boost source
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.boost_source_cache.outputs.cache-primary-key != '' && steps.boost_source_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/output/obj/*/opt/shared/dependencies/release/.boost-source-verified', env.BUILD_ROOT)) != ''
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.BUILD_ROOT }}/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/dependencies/release/boost_1_88_0.tar.gz
+          key: ${{ steps.boost_source_cache.outputs.cache-primary-key }}
+      - name: Preserve compiled Linux wheel dependencies
+        id: preserve_boost
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.boost_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/output/obj/*/opt/shared/dependencies/release/.boost-cache-ready', env.BUILD_ROOT)) != ''
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          mkdir -p output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+          cp -a "$BUILD_ROOT/output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/dependencies/release/boost_python${PYTHON_VERSION//./}/." output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel/
+      - name: Save compiled wheel dependencies
+        if: steps.reuse.outputs.reused != 'true' && always() && steps.preserve_boost.outcome == 'success' && steps.boost_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+          key: ${{ steps.boost_cache.outputs.cache-primary-key }}
+      - name: Upload tested Linux Python ${{ matrix.python }} wheel (${{ matrix.arch }})
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release_linux_${{ matrix.arch }}_${{ matrix.python }}
+          retention-days: 14
+          path: ${{ env.BUILD_ROOT }}/lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+          if-no-files-found: error
+      - name: Preserve Linux wheel diagnostics
+        if: steps.reuse.outputs.reused != 'true' && (failure())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: linux_wheel_diagnostics_${{ matrix.arch }}_${{ matrix.python }}
+          path: |
+            ${{ env.BUILD_ROOT }}/output/**/CMakeConfigureLog.yaml
+            ${{ env.BUILD_ROOT }}/lib/pylockd/output/obj/**/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore

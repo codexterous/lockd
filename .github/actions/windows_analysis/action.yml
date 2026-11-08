@@ -1,0 +1,140 @@
+name: Windows analysis
+description: Analyze native and Python sources with the same dependency caches as release builds.
+runs:
+  using: composite
+  steps:
+    - name: Select preinstalled Windows clang-tidy
+      shell: pwsh
+      run: python "${{ github.action_path }}/../../../scripts/release/select_windows_llvm.py"
+    - name: Identify the native Windows toolchain
+      id: native_toolchain
+      working-directory: ${{ env.BUILD_ROOT }}
+      shell: pwsh
+      run: |
+        . ./scripts/release/windows_environment.ps1 -Architecture $env:BUILD_ARCH
+        $compilerHash = (Get-FileHash -LiteralPath (Get-Command cl.exe).Source -Algorithm SHA256).Hash
+        $cmakeVersion = (& cmake --version | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot identify CMake for the dependency cache.' }
+        $powerShellVersion = $PSVersionTable.PSVersion.ToString()
+        $identity = "$compilerHash|$env:VCToolsVersion|$env:WindowsSDKVersion|$([Environment]::OSVersion.Version)|$cmakeVersion|$powerShellVersion|$env:ImageVersion"
+        $hash = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = [Convert]::ToHexString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity)))
+        }
+        finally { $hash.Dispose() }
+        "digest=$digest" >> $env:GITHUB_OUTPUT
+    - name: Restore Windows build dependencies
+      id: native_cache
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/native
+        key: native-windows-v2-${{ env.BUILD_ARCH }}-${{ env.BUILD_LINKAGE }}-${{ steps.native_toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/vcpkg.json', 'output/obj/*/opt/shared/source/**/lockd_toolchain.cmake', 'vcpkg.json', 'cmake/lockd_toolchain.cmake') }}-${{ github.run_id }}-${{ github.run_attempt }}-analysis
+        # vcpkg checks each binary's ABI before using entries from an older cache.
+        restore-keys: |
+            native-windows-v2-${{ env.BUILD_ARCH }}-${{ env.BUILD_LINKAGE }}-${{ steps.native_toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/vcpkg.json', 'output/obj/*/opt/shared/source/**/lockd_toolchain.cmake', 'vcpkg.json', 'cmake/lockd_toolchain.cmake') }}-
+            native-windows-v2-${{ env.BUILD_ARCH }}-${{ env.BUILD_LINKAGE }}-${{ steps.native_toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/vcpkg.json', 'output/obj/*/opt/shared/source/**/lockd_toolchain.cmake', 'vcpkg.json', 'cmake/lockd_toolchain.cmake') }}
+            native-windows-v2-${{ env.BUILD_ARCH }}-${{ env.BUILD_LINKAGE }}-
+    - name: Record restored native dependency contents
+      id: native_cache_state
+      shell: pwsh
+      run: |
+        "digest=${{ hashFiles('output/obj/*/opt/shared/cache/native/**') }}" >> $env:GITHUB_OUTPUT
+    - name: Configure native dependencies
+      working-directory: ${{ env.BUILD_ROOT }}
+      shell: pwsh
+      run: |
+        . ./scripts/release/windows_environment.ps1 -Architecture $env:BUILD_ARCH
+        $cache = Join-Path $env:GITHUB_WORKSPACE 'output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/native'
+        & (Join-Path $env:BUILD_ROOT 'scripts/release/windows_vcpkg_cache.ps1') -Operation Restore -CacheDirectory $cache
+        Write-Host "vcpkg installation: $env:VCPKG_ROOT"
+        $preset = "$env:BUILD_ARCH-opt-$env:BUILD_LINKAGE"
+        Invoke-Checked cmake @('--preset', $preset, "-DLOCKD_CLANG_TIDY_EXECUTABLE=$env:LOCKD_CI_CLANG_TIDY", '-DLOCKD_BUILD_PYTHON=OFF', '-DLOCKD_CLANG_TIDY=OFF', '-DLOCKD_CLANG_TIDY_WARNINGS_AS_ERRORS=ON')
+    - name: Collect completed native dependency downloads and binaries
+      id: collect_native
+      if: always() && steps.native_cache.outputs.cache-primary-key != ''
+      shell: pwsh
+      run: |
+        $cache = Join-Path $env:GITHUB_WORKSPACE 'output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/native'
+        & (Join-Path $env:BUILD_ROOT 'scripts/release/windows_vcpkg_cache.ps1') -Operation Collect -CacheDirectory $cache
+    - name: Save compiled native dependencies before analysis
+      if: always() && steps.collect_native.outcome == 'success' && hashFiles('output/obj/*/opt/shared/cache/native/**') != '' && hashFiles('output/obj/*/opt/shared/cache/native/**') != steps.native_cache_state.outputs.digest
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/native
+        key: ${{ steps.native_cache.outputs.cache-primary-key }}
+    - name: Preserve Windows dependency failure diagnostics
+      if: failure()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: windows_analysis_dependency_diagnostics
+        path: |
+          ${{ env.VCPKG_INSTALLATION_ROOT }}/buildtrees/**/*.log
+          ${{ env.BUILD_ROOT }}/output/obj/x86_64/opt/shared/vcpkg-manifest-install.log
+        retention-days: 7
+        if-no-files-found: ignore
+    - name: Identify the Windows wheel toolchain
+      id: python_toolchain
+      working-directory: ${{ env.BUILD_ROOT }}
+      shell: pwsh
+      run: |
+        . ./scripts/release/windows_environment.ps1
+        $pythonVersion = & python -c "import sys; print(sys.version)"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not inspect Python.' }
+        $compilerHash = (Get-FileHash -LiteralPath (Get-Command cl.exe).Source -Algorithm SHA256).Hash
+        $identity = "$pythonVersion|$compilerHash|$env:VCToolsVersion|$env:WindowsSDKVersion|$([Environment]::OSVersion.Version)"
+        $hash = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = [Convert]::ToHexString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity)))
+        }
+        finally { $hash.Dispose() }
+        "digest=$digest" >> $env:GITHUB_OUTPUT
+    - name: Cache compiled Windows wheel dependencies
+      id: boost_cache
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+        key: boost-wheel-windows-v1-x64-${{ env.PYTHON_VERSION }}-${{ steps.python_toolchain.outputs.digest }}-${{ hashFiles('output/obj/*/opt/shared/source/**/build_boost_python.ps1', 'output/obj/*/opt/shared/source/**/windows_environment.ps1') }}
+    - name: Cache Boost.Python source archive
+      id: boost_source_cache
+      if: steps.boost_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ env.LOCKD_HOST_BUILD_DIR }}/dependencies/release/boost_1_88_0.tar.gz
+        key: boost-source-1.88.0-3621533e820dcab1-v1
+    - name: Restore compiled Windows wheel dependencies
+      if: steps.boost_cache.outputs.cache-hit == 'true'
+      shell: pwsh
+      run: |
+        $prefix = Join-Path $env:LOCKD_HOST_BUILD_DIR ("dependencies/release/boost_python" + $env:PYTHON_VERSION.Replace('.', ''))
+        New-Item -ItemType Directory -Force $prefix | Out-Null
+        Copy-Item -Path 'output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel/*' -Destination $prefix -Recurse
+    - name: Prepare Boost.Python for analysis
+      shell: pwsh
+      working-directory: ${{ env.BUILD_ROOT }}
+      env:
+        LOCKD_BOOST_CACHE_HIT: ${{ steps.boost_cache.outputs.cache-hit }}
+      run: ./scripts/release/build_boost_python.ps1
+    - name: Save verified Boost source
+      if: always() && steps.boost_source_cache.outputs.cache-primary-key != '' && steps.boost_source_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/dependencies/release/.boost-source-verified', env.LOCKD_HOST_BUILD_DIR)) != ''
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ env.LOCKD_HOST_BUILD_DIR }}/dependencies/release/boost_1_88_0.tar.gz
+        key: ${{ steps.boost_source_cache.outputs.cache-primary-key }}
+    - name: Preserve compiled Windows wheel dependencies
+      id: preserve_boost
+      if: always() && steps.boost_cache.outputs.cache-hit != 'true' && hashFiles(format('{0}/dependencies/release/.boost-cache-ready', env.LOCKD_HOST_BUILD_DIR)) != ''
+      shell: pwsh
+      run: |
+        $prefix = Join-Path $env:LOCKD_HOST_BUILD_DIR ("dependencies/release/boost_python" + $env:PYTHON_VERSION.Replace('.', ''))
+        New-Item -ItemType Directory -Force output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel | Out-Null
+        Copy-Item -Path "$prefix/*" -Destination output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel -Recurse
+    - name: Save compiled wheel dependencies
+      if: always() && steps.preserve_boost.outcome == 'success' && steps.boost_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/cache/boost-wheel
+        key: ${{ steps.boost_cache.outputs.cache-primary-key }}
+    - name: Analyze Windows native and Python sources
+      shell: pwsh
+      working-directory: ${{ env.BUILD_ROOT }}
+      run: ./scripts/release/analyze_windows.ps1
