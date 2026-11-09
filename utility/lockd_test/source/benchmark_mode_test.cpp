@@ -263,6 +263,9 @@ BOOST_FIXTURE_TEST_CASE(
         for (const std::string workload : {"independent", "contended", "idle", "churn"}) {
             BOOST_TEST_CONTEXT("Benchmark engine: " << engine << "; workload: " << workload)
             {
+                // Exercise reconnects without exhausting the host's ephemeral ports. Closed
+                // churn sockets remain in TIME_WAIT across repeated test-suite runs; this
+                // functional check needs completed cycles, not maximum connection throughput.
                 const auto [status, output] = benchmark_child(
                         {"--",
                          "-B",
@@ -275,6 +278,7 @@ BOOST_FIXTURE_TEST_CASE(
                          "--connections=2",
                          "--duration=1",
                          "--warmup=0",
+                         workload == "churn" ? "--hold-ms=10" : "--hold-ms=0",
                          "--workload=" + workload,
                          "--engine=" + engine,
                          "--results=" + path.string()}
