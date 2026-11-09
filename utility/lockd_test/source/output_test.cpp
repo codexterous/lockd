@@ -77,9 +77,14 @@ BOOST_AUTO_TEST_CASE(test_output_is_quiet_on_success_and_preserves_failures)
 {
     // Run isolated passing, failing, expected-failure, and verbosity probes. Verify
     // exit status and captured diagnostics, including command-line and environment overrides.
+    // The POSIX signal test also launches real daemon children whose stderr must stay captured.
     const std::string executable = ldt::master_test_suite_argv()[0];
     for (const std::string scenario :
-         {"passing", "failing", "expected", "verbose", "overrides", "environment"}) {
+         {"passing", "failing", "expected", "verbose", "overrides", "environment", "signals"}) {
+#ifdef WIN32
+        if (scenario == "signals")
+            continue;
+#endif
         BOOST_TEST_CONTEXT("Output capture scenario: " << scenario)
         {
             const bool verbose = scenario == "verbose";
@@ -94,6 +99,9 @@ BOOST_AUTO_TEST_CASE(test_output_is_quiet_on_success_and_preserves_failures)
                     "--color_output=no",
                     verbose ? "--log_level=message" : "--log_level=error"
             };
+            if (scenario == "signals")
+                arguments[0] =
+                        "--run_test=lifetimes/signals_drain_lock_holders_and_exit_successfully";
             if (overrides) {
                 arguments.emplace_back("--show_progress=no");
                 arguments.emplace_back("--report_level=no");
@@ -151,6 +159,11 @@ BOOST_AUTO_TEST_CASE(test_output_is_quiet_on_success_and_preserves_failures)
                     output.find("expectedly_fails") == std::string::npos,
                     "Expected assertion diagnostics stay quiet: " << output
             );
+            if (scenario == "signals")
+                BOOST_CHECK_MESSAGE(
+                        output.find("Stopping lockd;") == std::string::npos,
+                        "Successful signal tests keep child-daemon diagnostics captured: " << output
+                );
             BOOST_CHECK_MESSAGE(
                     (output.find("100%") != std::string::npos) == !quiet,
                     "Progress defaults on and can be disabled: " << output

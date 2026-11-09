@@ -51,6 +51,7 @@
 #include <boost/test/unit_test_suite.hpp>
 
 #ifndef WIN32
+# include <future>
 # include <thread>
 
 # include <signal.h> // NOLINT(modernize-deprecated-headers): POSIX kill, outside <csignal>.
@@ -109,6 +110,7 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                                            ("signal_" + std::to_string(endpoint.port()));
                 const auto pid_file = artifact_base.string() + ".pid";
                 const auto log_file = artifact_base.string() + ".log";
+                bp::ipstream diagnostic_output;
                 bp::child daemon(
                         daemon_path,
                         "-l",
@@ -125,8 +127,17 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                         pid_file,
                         "--log-file",
                         log_file,
-                        bp::std_out > bp::null
+                        bp::std_out > bp::null,
+                        bp::std_err > diagnostic_output
                 );
+                // Drain stderr while the child runs so diagnostics cannot fill the pipe and
+                // block shutdown. Route them through the test observer after the child exits;
+                // inherited stderr would bypass its quiet-on-success output capture.
+                auto diagnostic_reader = std::async(std::launch::async, [&diagnostic_output] {
+                    std::ostringstream output;
+                    output << diagnostic_output.rdbuf();
+                    return output.str();
+                });
                 try {
                     ldt::poll_until(
                             service,
@@ -189,9 +200,12 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                     if (daemon.running())
                         daemon.terminate();
                     daemon.wait();
+                    std::clog << diagnostic_reader.get();
                     std::filesystem::remove(pid_file);
                     throw;
                 }
+                daemon.wait();
+                std::clog << diagnostic_reader.get();
             }
         }
     }
