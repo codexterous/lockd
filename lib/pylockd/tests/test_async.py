@@ -46,7 +46,7 @@ class ScriptedPeerFixture(unittest.IsolatedAsyncioTestCase):
                 error
                 for error in results
                 if isinstance(error, BaseException)
-                   and not isinstance(error, asyncio.CancelledError)
+                and not isinstance(error, asyncio.CancelledError)
             ],
             [],
         )
@@ -61,7 +61,7 @@ class ScriptedPeerFixture(unittest.IsolatedAsyncioTestCase):
         """Listen on loopback and bound each scripted connection to three seconds."""
 
         async def serve(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Run the peer script and close its socket on every outcome."""
             try:
@@ -74,7 +74,7 @@ class ScriptedPeerFixture(unittest.IsolatedAsyncioTestCase):
                     pass
 
         def accepted(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Retain the server task so errors reach the test runner."""
             self.handlers.append(asyncio.create_task(serve(reader, writer)))
@@ -96,16 +96,16 @@ class ScriptedPeerFixture(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data, b'')
 
     async def completed_session(
-            self,
-            reader: asyncio.StreamReader,
-            writer: asyncio.StreamWriter,
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
     ) -> None:
         """Acknowledge one acquisition and release, then require connection cleanup."""
         writer.write(b'LOCKD\r\n')
         while command := await reader.readline():
             if (
-                    command.startswith(b'TIMED_LOCK example ')
-                    or command == b'LOCK example\n'
+                command.startswith(b'TIMED_LOCK example ')
+                or command == b'LOCK example\n'
             ):
                 writer.write(b'LOCK_ACQUIRING\r\nLOCK_ACQUIRED\r\n')
             elif command == b'TRY_LOCK example\n':
@@ -120,7 +120,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
     """Control wire replies while running the production async implementation."""
 
     async def test_context_releases_after_body_exception_and_can_be_reused(
-            self,
+        self,
     ) -> None:
         """Preserve the body error and reuse the existing connection."""
         port: int = await self.peer(self.completed_session)
@@ -141,7 +141,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         closed: asyncio.Event = asyncio.Event()
 
         async def held(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Observe destructor release before the final mutex closes its connection."""
             writer.write(b'LOCKD\n')
@@ -185,13 +185,13 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         )
         operation: Any = scope.lock()
         for arguments, keywords in (
-                ((), {}),
-                ((ValueError, None, None, None), {}),
-                ((), {'exception': ValueError}),
+            ((), {}),
+            ((ValueError, None, None, None), {}),
+            ((), {'exception': ValueError}),
         ):
             with self.subTest(arguments=arguments, keywords=keywords):
                 with self.assertRaisesRegex(
-                        pylockd.Exception, 'throw expects'
+                    pylockd.Exception, 'throw expects'
                 ) as caught:
                     operation.throw(*arguments, **keywords)
                 self.assertEqual(
@@ -201,20 +201,20 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         self.assertFalse(scope.owns_lock())
 
     async def test_fragmented_greeting_grant_and_release_yield_to_other_tasks(
-            self,
+        self,
     ) -> None:
         """Do not complete operations before their newline arrives."""
         prefix: asyncio.Queue[str] = asyncio.Queue()
         proceed: asyncio.Queue[None] = asyncio.Queue()
 
         async def fragments(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Hold back each reply suffix until the test has inspected the client."""
             for label, first, last in (
-                    ('greeting', b'LO', b'CKD\n'),
-                    ('grant', b'LOCK_ACQUIRING\nLOCK_AC', b'QUIRED\n'),
-                    ('release', b'LOCK_REL', b'EASED\n'),
+                ('greeting', b'LO', b'CKD\n'),
+                ('grant', b'LOCK_ACQUIRING\nLOCK_AC', b'QUIRED\n'),
+                ('release', b'LOCK_REL', b'EASED\n'),
             ):
                 writer.write(first)
                 await writer.drain()
@@ -252,12 +252,12 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         del connection, settings, mutex, scope
 
     async def test_release_failure_does_not_replace_a_body_exception_or_cancellation(
-            self,
+        self,
     ) -> None:
         """Preserve the original body error and retain cleanup failure as its cause."""
 
         async def bad_release(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Grant a lock, reject its release, and observe cleanup."""
             writer.write(b'LOCKD\n')
@@ -291,7 +291,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         read = asyncio.StreamReader.read
 
         async def reset_after_close(
-                reader: asyncio.StreamReader, size: int = -1
+            reader: asyncio.StreamReader, size: int = -1
         ) -> bytes:
             """Keep the native client's closure observable before changing its status."""
             data = await read(reader, size)
@@ -300,10 +300,10 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
             return data
 
         for reset_error in (
-                ConnectionResetError(54, 'Connection reset by peer'),
-                ConnectionResetError(
-                    22, 'The specified network name is no longer available', None, 64
-                ),
+            ConnectionResetError(54, 'Connection reset by peer'),
+            ConnectionResetError(
+                22, 'The specified network name is no longer available', None, 64
+            ),
         ):
             with (
                 self.subTest(reset=repr(reset_error)),
@@ -336,8 +336,8 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         first: bool = True
 
         async def cancellable(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
         ) -> None:
             """Stall only the first connection and allow a normal retry."""
             nonlocal first
@@ -375,19 +375,19 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
                 caught.exception.cause.error_type(), pylockd.ErrorType.not_connected
             )
         async with pylockd.AsyncScopedLock(
-                await pylockd.AsyncMutex('127.0.0.1', port, 1, 'example')
+            await pylockd.AsyncMutex('127.0.0.1', port, 1, 'example')
         ) as retry_scope:
             self.assertTrue(retry_scope.owns_lock())
 
     async def test_cancellation_after_context_entry_releases_and_preserves_connection(
-            self,
+        self,
     ) -> None:
         """Cancel inside the body, acknowledge release, and reuse the same connection."""
         entered: asyncio.Event = asyncio.Event()
         connections: int = 0
 
         async def grant(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Require both lock scopes to acquire and release on one connection."""
             nonlocal connections
@@ -425,7 +425,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         self.assertEqual(connections, 1)
 
     async def test_second_cancellation_during_unlock_still_closes_the_connection(
-            self,
+        self,
     ) -> None:
         """A second cancellation must not interrupt the final local cleanup."""
         entered: asyncio.Event = asyncio.Event()
@@ -433,7 +433,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         closed: asyncio.Event = asyncio.Event()
 
         async def stalled_unlock(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Withhold the release reply until cancellation closes the socket."""
             writer.write(b'LOCKD\n')
@@ -466,7 +466,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         self.assertFalse(scope.owns_lock())
 
     async def test_cancellation_at_native_grant_delivery_closes_the_connection(
-            self,
+        self,
     ) -> None:
         """Cancel just before or after the native callback completes its Future."""
         for stage in ('before', 'after'):
@@ -478,8 +478,8 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         closed: asyncio.Event = asyncio.Event()
 
         async def grant(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
         ) -> None:
             """Grant the lock and require a disconnect on cancellation."""
             writer.write(b'LOCKD\n')
@@ -518,11 +518,11 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
     async def test_malformed_and_incomplete_replies_are_public_exceptions(self) -> None:
         """Reject malformed replies, incomplete EOF, and oversized lines."""
         for stage, reply in (
-                ('greeting', b'OTHER\n'),
-                ('grant', b'LOCK_UNAVAILABLE\n'),
-                ('grant', b'LOCK_ACQUIRED'),
-                ('grant', b'x' * 5000 + b'\n'),
-                ('release', b'NOT_RELEASED\n'),
+            ('greeting', b'OTHER\n'),
+            ('grant', b'LOCK_UNAVAILABLE\n'),
+            ('grant', b'LOCK_ACQUIRED'),
+            ('grant', b'x' * 5000 + b'\n'),
+            ('release', b'NOT_RELEASED\n'),
         ):
             with self.subTest(stage=stage, reply=reply[:30]):
                 await self._check_malformed_reply(stage, reply)
@@ -531,8 +531,8 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         """Check one malformed reply without sharing peer state between scenarios."""
 
         async def malformed(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
         ) -> None:
             """Supply one bad reply at the selected boundary."""
             if stage == 'greeting':
@@ -557,13 +557,13 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
             self.assertFalse(scope.owns_lock())
 
     async def test_greeting_timeout_and_connection_refusal_release_local_state(
-            self,
+        self,
     ) -> None:
         """Bound setup failures and retain native error categories."""
         closed: asyncio.Event = asyncio.Event()
 
         async def silent(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Accept TCP but never supply the daemon greeting."""
             await self.assert_connection_closed(reader)
@@ -591,7 +591,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         )
 
     async def test_only_the_owning_scope_can_release_and_relocking_is_rejected(
-            self,
+        self,
     ) -> None:
         """Wrong-scope and duplicate operations must not disturb a held connection."""
         port: int = await self.peer(self.completed_session)
@@ -617,7 +617,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         first: bool = True
 
         async def contended(
-                reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             """Leave the first request queued and grant the retry normally."""
             nonlocal first
@@ -648,7 +648,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
             caught.exception.cause.error_type(), pylockd.ErrorType.not_connected
         )
         async with pylockd.AsyncScopedLock(
-                await pylockd.AsyncMutex('127.0.0.1', port, 1, 'example')
+            await pylockd.AsyncMutex('127.0.0.1', port, 1, 'example')
         ):
             pass
 
@@ -672,7 +672,7 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
         await owner.unlock()
 
     async def test_constructor_rejects_protocol_injection_and_invalid_timeouts(
-            self,
+        self,
     ) -> None:
         """Reject invalid names and timeouts with native error metadata before connecting."""
         alphabet: str = (
@@ -685,9 +685,9 @@ class ScriptedAsyncTests(ScriptedPeerFixture):
             if chr(byte) not in alphabet
         ]
         for mutex_type in (
-                pylockd.AsyncMutex,
-                pylockd.AsyncTimedMutex,
-                pylockd.AsyncRecursiveMutex,
+            pylockd.AsyncMutex,
+            pylockd.AsyncTimedMutex,
+            pylockd.AsyncRecursiveMutex,
         ):
             for name in ('n', 'n' * 256, alphabet):
                 mutex_type('127.0.0.1', 1, 1, name)
@@ -779,11 +779,11 @@ class AsyncDaemonFixture(unittest.IsolatedAsyncioTestCase):
                     lifetime_tests.InstalledWheelTests.log_path.read_text,
                 )
                 if (
-                        sum(
-                            'Lock acquisition request' in line and f"'{name}'" in line
-                            for line in log.splitlines()
-                        )
-                        >= count
+                    sum(
+                        'Lock acquisition request' in line and f"'{name}'" in line
+                        for line in log.splitlines()
+                    )
+                    >= count
                 ):
                     return
                 await asyncio.sleep(0.01)
@@ -821,7 +821,7 @@ class AsyncDaemonTests(AsyncDaemonFixture):
         await waiter.unlock()
 
     async def test_cancelled_remote_waiter_requires_a_new_connection_without_leaking_a_lock(
-            self,
+        self,
     ) -> None:
         """Cancel a queued request, reject its dead connection, and acquire through a new one."""
         owner: Any = await self.scope('async-cancel-queue')
@@ -845,7 +845,7 @@ class AsyncDaemonTests(AsyncDaemonFixture):
             pass
 
     async def test_cancelled_local_waiter_does_not_close_the_current_owner(
-            self,
+        self,
     ) -> None:
         """Cancel a local waiter without disturbing the current owner."""
         mutex: Any = await pylockd.AsyncMutex('127.0.0.1', self.port, 1, 'async-local')
@@ -892,7 +892,7 @@ class AsyncDaemonTests(AsyncDaemonFixture):
             pass
 
     async def test_async_and_synchronous_python_clients_contend_for_the_same_lock(
-            self,
+        self,
     ) -> None:
         """Use the real synchronous binding as an independent protocol contender."""
 
