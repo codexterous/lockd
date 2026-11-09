@@ -103,7 +103,9 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                 );
                 const auto endpoint = port_reservation.local_endpoint();
                 port_reservation.close();
-                const auto artifact_base = std::filesystem::path(daemon_path).parent_path() /
+                // Installed binaries can be read-only; test artifacts belong in our writable
+                // working directory, just as they do for the other startup tests.
+                const auto artifact_base = std::filesystem::current_path() /
                                            ("signal_" + std::to_string(endpoint.port()));
                 const auto pid_file = artifact_base.string() + ".pid";
                 const auto log_file = artifact_base.string() + ".log";
@@ -123,18 +125,23 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                         pid_file,
                         "--log-file",
                         log_file,
-                        bp::std_out > bp::null,
-                        bp::std_err > bp::null
+                        bp::std_out > bp::null
                 );
                 try {
-                    ldt::poll_until(service, [&] {
-                        tcp::socket probe(service);
-                        boost::system::error_code error;
+                    ldt::poll_until(
+                            service,
+                            [&] {
+                                if (!daemon.running())
+                                    BOOST_FAIL("Daemon exited before opening its listener");
+                                tcp::socket probe(service);
+                                boost::system::error_code error;
 
-                        // NOLINTNEXTLINE(bugprone-unused-return-value)
-                        static_cast<void>(probe.connect(endpoint, error));
-                        return !error;
-                    });
+                                // NOLINTNEXTLINE(bugprone-unused-return-value)
+                                static_cast<void>(probe.connect(endpoint, error));
+                                return !error;
+                            },
+                            "signal-test daemon startup"
+                    );
                     lld::mutex mutex(
                             "127.0.0.1", endpoint.port(), std::chrono::seconds(1), "signal-holder"
                     );
@@ -146,14 +153,18 @@ BOOST_AUTO_TEST_CASE(signals_drain_lock_holders_and_exit_successfully)
                     BOOST_REQUIRE_EQUAL(::kill(daemon.id(), signal), 0);
 
                     // Refusal establishes that shutdown has begun before we release our lock.
-                    ldt::poll_until(service, [&] {
-                        tcp::socket probe(service);
-                        boost::system::error_code error;
+                    ldt::poll_until(
+                            service,
+                            [&] {
+                                tcp::socket probe(service);
+                                boost::system::error_code error;
 
-                        // NOLINTNEXTLINE(bugprone-unused-return-value)
-                        static_cast<void>(probe.connect(endpoint, error));
-                        return !!error;
-                    });
+                                // NOLINTNEXTLINE(bugprone-unused-return-value)
+                                static_cast<void>(probe.connect(endpoint, error));
+                                return !!error;
+                            },
+                            "signal-test listener shutdown"
+                    );
                     if (hold_lock) {
                         BOOST_CHECK_MESSAGE(daemon.running(), "Signal waits for our lock release");
                         BOOST_CHECK_NO_THROW(mutex.unlock(lld::mutex::tt_throw_on_failure));
