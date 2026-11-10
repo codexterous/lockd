@@ -1,0 +1,176 @@
+# Manual signing of an already-published release; removable after the 1.0.4 update.
+name: Sign existing Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing mutable release whose Windows assets should be signed
+        type: string
+        default: v1.0.4
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-refs/tags/${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  OUTPUT_ARCH: x86_64
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  source:
+    name: Download existing release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out signing tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download and verify published release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python -c 'import os, sys; sys.path.insert(0, "scripts/release"); from build_version import validate_version; tag = os.environ["RELEASE_TAG"]; assert tag.startswith("v"); validate_version(tag[1:])'
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq 'if .immutable or .draft then error("A published mutable release is required") else .tag_name end'
+          mkdir -p output/x86_64/opt/static
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir output/x86_64/opt/static
+          (cd output/x86_64/opt/static && sha256sum --check --strict SHA256SUMS)
+          LOCKD_RELEASE_VERSION="${RELEASE_TAG#v}" python scripts/release/package.py checksums
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Preserve original release assets
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tested_release
+          path: output/x86_64/opt/static/*
+          if-no-files-found: error
+
+  sign_windows:
+    name: Sign Windows release assets
+    needs: source
+    # The signing action requires an x64 runner, including when signing ARM64 files.
+    runs-on: windows-2022
+    environment: lockd
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      LOCKD_RELEASE_VERSION: ${{ needs.source.outputs.version }}
+    steps:
+      - name: Check out signing tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Download assets for signing
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: tested_release
+          path: output/x86_64/opt/static
+      - name: Prepare portable executables
+        run: ./scripts/release/prepare_windows_signing.ps1 -Operation Prepare -Version $env:LOCKD_RELEASE_VERSION
+      - name: Authenticate to Azure with OIDC
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign and timestamp portable executables
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}/output/obj/x86_64/opt/shared/signing/payload
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
+      - name: Verify payload signatures and rebuild installers
+        run: ./scripts/release/prepare_windows_signing.ps1 -Operation Rebuild -Version $env:LOCKD_RELEASE_VERSION
+      - name: Sign and timestamp installers
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}/output/obj/x86_64/opt/shared/signing/installers
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
+      - name: Verify installer signatures
+        run: ./scripts/release/prepare_windows_signing.ps1 -Operation Collect -Version $env:LOCKD_RELEASE_VERSION
+      - name: Generate checksums after signing
+        run: python scripts/release/package.py checksums
+      - name: Preserve signed release assets
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signed_release
+          path: output/x86_64/opt/static/*
+          if-no-files-found: error
+
+  publish:
+    name: Upload signed Windows assets
+    needs: [source, sign_windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: signed_release
+          path: output/x86_64/opt/static
+      - name: Replace only Windows assets and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" \
+            --jq 'if .immutable or .draft then error("A published mutable release is required") else .tag_name end'
+          cd output/x86_64/opt/static
+          sha256sum --check --strict SHA256SUMS
+          assets=()
+          for arch in arm64 x86 x86_64; do
+            case "$arch" in
+              arm64) platform='Windows ARM64' ;;
+              x86) platform='Windows x86' ;;
+              x86_64) platform='Windows x86_64' ;;
+            esac
+            installer_label="$platform - Installer"
+            if [[ "$arch" == x86_64 ]]; then installer_label+=' (Recommended)'; fi
+            assets+=("lockd-$RELEASE_VERSION-windows-$arch-portable.zip#$platform - Portable ZIP")
+            assets+=("lockd-$RELEASE_VERSION-windows-$arch-setup.exe#$installer_label")
+          done
+          # No source archives, wheels, tags, or release metadata are uploaded here.
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          gh release upload "$RELEASE_TAG" SHA256SUMS --clobber

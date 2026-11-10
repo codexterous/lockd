@@ -179,16 +179,33 @@ platforms and any coverage gaps in the release review.
 The `clang_tidy` and `clang_tidy_full` targets rescan their configured components, including
 unchanged files; use them for full scans.
 
+### Signing Windows releases
+
+The Release workflow signs the portable daemon and native test executables for all three Windows
+architectures, rebuilds the installers with those signed payloads, then signs the installers. It
+uses SHA-256 file digests and RFC 3161 timestamps. SignTool and Windows Authenticode verification
+must pass before publication, and release checksums are generated after signing.
+
+The signing job uses the GitHub environment `lockd`. Configure these environment secrets:
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`. Configure these environment
+variables: `AZURE_SIGNING_ACCOUNT_NAME`, `AZURE_SIGNING_ENDPOINT`, and
+`AZURE_CERTIFICATE_PROFILE_NAME`.
+
+The Azure application needs a federated credential matching this repository's OIDC subject for the
+`lockd` environment and the Artifact Signing Certificate Profile Signer role on the signing account
+or certificate profile. Authentication uses OIDC without a client secret. See Microsoft's
+[OIDC setup instructions](https://github.com/Azure/artifact-signing-action/blob/main/docs/OIDC.md).
+
 ### Publishing wheels to PyPI
 
 Push the commit and let **Compatibility** finish, then run **Release** from GitHub Actions for that
 same commit's branch. Release reuses successful checks and tested artifacts for the same commit and
 assigned version. Missing or expired checks run before publication.
 
-**Publish wheels to PyPI** uploads the validated `tested_python` artifact after release assembly
-succeeds. This includes all 30 wheels: CPython 3.11 through 3.15 for Windows and manylinux, each on
-x86, x86_64, and ARM64. The publishing job downloads those files without rebuilding or renaming
-them. Ordinary compatibility runs never publish to an index.
+**Publish wheels to PyPI** uploads the validated `tested_python` artifact after release assembly and
+Windows signing succeed. This includes all 30 wheels: CPython 3.11 through 3.15 for Windows and
+manylinux, each on x86, x86_64, and ARM64. The publishing job downloads those files without
+rebuilding or renaming them. Ordinary compatibility runs never publish to an index.
 
 The repository Actions secret `PYPI_API_TOKEN` must contain an API token issued by the configured
 package index with permission to publish `pylockd`. The upload URL is configured in the Release

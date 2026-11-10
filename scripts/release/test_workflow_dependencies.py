@@ -140,7 +140,7 @@ class WorkflowDependenciesTests(unittest.TestCase):
         """Manual and tag releases use the assigned version and checked-out commit."""
         jobs: dict[str, str] = job_blocks('release.yml')
         block: str = jobs['publish']
-        self.assertEqual(dependencies(block), {'source', 'assemble'})
+        self.assertEqual(dependencies(block), {'source', 'assemble', 'sign_windows'})
         expression: str = block.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
         expression = ' '.join(
             expression.replace('&&', 'and').replace('||', 'or').split()
@@ -156,6 +156,9 @@ class WorkflowDependenciesTests(unittest.TestCase):
                         '!cancelled()', str(not cancelled)
                     )
                     condition = condition.replace('needs.assemble.result', repr(result))
+                    condition = condition.replace(
+                        'needs.sign_windows.result', repr(result)
+                    )
                     condition = condition.replace('github.event_name', repr(event))
                     condition = condition.replace(
                         "startsWith(github.ref, 'refs/tags/v')",
@@ -182,6 +185,28 @@ class WorkflowDependenciesTests(unittest.TestCase):
         self.assertIn('      reuse_native: ${{ inputs.reuse_native == true }}\n', block)
         self.assertEqual(dependencies(block), {'source', 'wheels_linux'})
 
+    def test_signing_failure_blocks_both_new_release_publishers(self) -> None:
+        """Explicit cancellation handling must not bypass the signature success gate."""
+        jobs = job_blocks('release.yml')
+        for name in ('publish', 'publish_python'):
+            self.assertIn("needs.sign_windows.result == 'success'", jobs[name])
+            self.assertIn('sign_windows', dependencies(jobs[name]))
+        self.assertIn('name: signed_release', jobs['publish'])
+        signing = jobs['sign_windows']
+        self.assertIn('    environment: lockd\n', signing)
+        self.assertIn('      id-token: write\n', signing)
+        self.assertNotIn('contents: write', signing)
+        self.assertIn('    runs-on: windows-2022\n', signing)
+        self.assertEqual(signing.count('timestamp-digest: SHA256'), 2)
+        self.assertLess(
+            signing.index('-Operation Rebuild'),
+            signing.index('name: Sign and timestamp installers'),
+        )
+        self.assertLess(
+            signing.index('-Operation Collect'),
+            signing.index('name: Generate checksums after signing'),
+        )
+
     def test_pypi_upload_uses_validated_wheels_after_all_release_checks(
         self,
     ) -> None:
@@ -191,7 +216,7 @@ class WorkflowDependenciesTests(unittest.TestCase):
         self.assertIn('    name: Publish wheels to PyPI\n', block)
         self.assertIn('name: Check PyPI credentials\n', block)
         self.assertIn('name: Upload validated wheels to PyPI\n', block)
-        self.assertEqual(dependencies(block), {'source', 'assemble'})
+        self.assertEqual(dependencies(block), {'source', 'assemble', 'sign_windows'})
 
         # Both destinations use the already-tested manual/tag release policy.
         # Assembly depends on every compatibility category and tested_python.
