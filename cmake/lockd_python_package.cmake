@@ -131,15 +131,17 @@ if (LOCKD_PACKAGE_BUILD_DIR)
     # while forwarding Ninja as CMAKE_MAKE_PROGRAM fails before compiler discovery.
     set(ENV{CMAKE_GENERATOR} "${Lockd_PARENT_CMAKE_GENERATOR}")
 
-    # The backend expands its ABI placeholder. A short identifier for
-    # the owning native tree separates compilers and dependency installations without
-    # repeating its entire absolute path in the already long Windows build directory.
+    # The backend expands its ABI placeholder. Include forwarded compiler/dependency
+    # settings in the cache identity: changing compilers in place makes CMake reset
+    # its cache, discarding the backend's initial-cache variables during reconfigure.
+    # A short identifier avoids repeating those paths in the Windows build directory.
     get_filename_component(Lockd_PARENT_BUILD_DIR "${LOCKD_PACKAGE_BUILD_DIR}" ABSOLUTE)
     set(Lockd_PARENT_BUILD_ID "${Lockd_PARENT_BUILD_DIR}")
     if (Lockd_PACKAGE_BOOST_PREFIX)
         string(APPEND Lockd_PARENT_BUILD_ID ";${Lockd_PACKAGE_BOOST_PREFIX}")
     endif ()
-    string(APPEND Lockd_PARENT_BUILD_ID ";${Lockd_PARENT_CMAKE_GENERATOR}")
+    string(APPEND Lockd_PARENT_BUILD_ID
+            ";${Lockd_PARENT_CMAKE_GENERATOR};${Lockd_PACKAGE_ARGS}")
     string(SHA256 Lockd_PARENT_BUILD_ID "${Lockd_PARENT_BUILD_ID}")
     string(SUBSTRING "${Lockd_PARENT_BUILD_ID}" 0 12 Lockd_PARENT_BUILD_ID)
     set(Lockd_WHEEL_BUILD_DIR "lib/pylockd/output/obj/{wheel_tag}/opt/static")

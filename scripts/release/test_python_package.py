@@ -203,6 +203,41 @@ class PythonPackageTests(unittest.TestCase):
         self.assertEqual(json.loads(self.trace.read_text())['generator'], 'Ninja')
         self.assertFalse(self.builds.exists())
 
+    def test_toolchain_changes_select_separate_wheel_build_trees(self) -> None:
+        """Keep changed compiler/toolchain settings out of an existing wheel cache."""
+        self.native_python.mkdir(parents=True)
+        for setting in (
+            'CMAKE_C_COMPILER',
+            'CMAKE_CXX_COMPILER',
+            'CMAKE_TOOLCHAIN_FILE',
+            'CMAKE_MAKE_PROGRAM',
+        ):
+            with self.subTest(setting=setting):
+                build_directories = []
+                changed = self.cache | {
+                    setting: (self.root / f'other-{setting}').as_posix()
+                }
+                for settings in (self.cache, changed, changed):
+                    self._configure(self.native, settings)
+                    result = self._run(self.native)
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    arguments = json.loads(self.trace.read_text())['arguments']
+                    build_directories.append(
+                        next(
+                            value
+                            for value in arguments
+                            if value.startswith('-Cbuild-dir=')
+                        )
+                    )
+                    self.assertIn(
+                        f'-Ccmake.define.{setting}={settings[setting]}', arguments
+                    )
+                self.assertNotEqual(build_directories[0], build_directories[1])
+                self.assertEqual(build_directories[1], build_directories[2])
+                self.assertFalse(self.builds.exists())
+
     def test_architecture_mismatch_fails_before_building_dependencies(self) -> None:
         """Reject an x86 profile with a 64-bit interpreter before any external build."""
         self._configure(self.native, self.cache | {'LOCKD_TARGET_ARCH': 'x86'})

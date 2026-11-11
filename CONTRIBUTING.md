@@ -348,9 +348,9 @@ The command-line equivalent is:
 cmake --build output/obj/x86_64/opt/shared --target pylockd_wheel_install
 ```
 
-Choose **pylockd wheel**, or build `pylockd_wheel`, to produce a wheel without installing it. Wheels
-go to `lib/pylockd/output/<arch>/opt/static/`. Use your interpreter's architecture in the `--outdir`
-path when building directly. Intermediate wheel builds use
+Choose **pylockd wheel (build)**, or build `pylockd_wheel`, to build a wheel without installing it.
+Wheels go to `lib/pylockd/output/<arch>/opt/static/`. Use your interpreter's architecture in the
+`--outdir` path when building directly. Intermediate wheel builds use
 `lib/pylockd/output/obj/<wheel_tag>/opt/static/`; see [the output
 layout](BUILDING.md#custom-dependencies-and-troubleshooting).
 

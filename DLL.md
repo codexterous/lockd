@@ -28,6 +28,14 @@ shows how to compile and link against the shared SDK.
 - [Rust](#rust)
 - [Node.js](#nodejs)
 
+## ABI compatibility
+
+The C API in `liblockd_dll.h` is stable within ABI version 1. Compatible additions retain this
+version; incompatible changes require a new ABI version, independently of the release version.
+
+On ELF systems, the SONAME is `libliblockd_dll.so.1`; Windows keeps `liblockd_dll.dll`. Relink
+applications built against an unversioned Unix library to record the versioned dependency.
+
 ## C
 
 Include `<liblockd_dll/liblockd_dll.h>` from C99 or later, or from C++:
