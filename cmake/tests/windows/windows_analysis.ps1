@@ -19,16 +19,21 @@ $ErrorActionPreference = 'Stop'
 # host here, after startup, so the real runner cannot change this fixture's input.
 $env:PROCESSOR_ARCHITECTURE = $HostMachine
 $env:PROCESSOR_ARCHITEW6432 = $null
-if (!(Test-Path -LiteralPath $VsWhere)) {
-    Add-Type -OutputAssembly $VsWhere -OutputType ConsoleApplication -TypeDefinition @"
-using System;
-public static class VsWhereFixture {
-    public static void Main(string[] args) {
-        Console.WriteLine(Environment.GetEnvironmentVariable("LOCKD_TEST_VS"));
+$script:discovered = $false
+function Find-FixtureVisualStudio {
+    param([switch]$latest, $products, $requires, $property)
+    $component = if ($env:LOCKD_TEST_ARCH -eq 'arm64') { 'ARM64' } else { 'x86.x64' }
+    if (!$latest -or $products -ne '*' -or $property -ne 'installationPath' -or
+            $requires -ne "Microsoft.VisualStudio.Component.VC.Tools.$component") {
+        throw 'Wrong Visual Studio discovery arguments'
     }
+    $script:discovered = $true
+    $global:LASTEXITCODE = 0
+    return $env:LOCKD_TEST_VS
 }
-"@
-}
+# Record the external discovery command in this process. Compiling and executing a
+# synthetic vswhere.exe adds unrelated compiler/runtime startup to host-selection tests.
+Set-Alias -Name $VsWhere -Value Find-FixtureVisualStudio
 $script:entered = $false
 function Import-Module { param($Name) }
 function Enter-VsDevShell {
@@ -39,7 +44,8 @@ function Enter-VsDevShell {
     $script:arguments = $DevCmdArguments
 }
 . $EnvironmentScript -Architecture $env:LOCKD_TEST_ARCH
-@{ root = $env:VCPKG_ROOT; entered = $script:entered; arguments = $script:arguments } | ConvertTo-Json
+@{ root = $env:VCPKG_ROOT; entered = $script:entered; arguments = $script:arguments
+    discovered = $script:discovered } | ConvertTo-Json
 '@ | Set-Content -LiteralPath $fixture -Encoding UTF8
 $user = Join-Path $root 'user-vcpkg'
 $runner = Join-Path $root 'runner-vcpkg'
@@ -81,6 +87,7 @@ foreach ($case in @(@('AMD64', 'x86'), @('AMD64', 'x86_64'), @('AMD64', 'arm64')
                 default { if ($initialized) { '' } else { $bundled } }
             }
             Assert-Equal ([string] $actual.root) $expected "$architecture $selected vcpkg selection"
+            Assert-Equal $actual.discovered (!$initialized) "$architecture compiler discovery"
             Assert-Equal $actual.entered (!$initialized) "$architecture compiler initialization"
             if (!$initialized) {
                 $compilerHost = if ($hostMachine -eq 'ARM64') { 'arm64' } else { 'x64' }

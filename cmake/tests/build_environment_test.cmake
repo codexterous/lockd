@@ -26,3 +26,7 @@ lockd_test_run(FAILS RESULT result OUTPUT output COMMAND "${powershell}"
         -Script "${failure}" -Log "${LOCKD_TEST_WORK}/expected_failure.log")
 lockd_test_equal("${result}" "37")
 lockd_test_contains("${output}" "console-launcher-failure")
+lockd_test_run(COMMAND "${powershell}" -NoLogo -NoProfile -NonInteractive
+        -ExecutionPolicy Bypass -File
+        "${LOCKD_TEST_SOURCE}/cmake/tests/windows/console_lifetime.ps1"
+        -Repository "${LOCKD_TEST_SOURCE}" -WorkDirectory "${LOCKD_TEST_WORK}/console_lifetime")

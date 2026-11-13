@@ -2,6 +2,21 @@
 <project version="4">
   <component name="CidrCTestProjectState">
     <ctestState>
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_build_environment" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_installer" value="85" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_native_cache" value="85" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_native_cache_workflow" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_native_presets" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_python_package_windows_x64" value="103" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_python_sdk" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_source_paths" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_toolchain" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_vcpkg_settings" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_version_fields" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_version_refresh" value="55" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_windows_analysis" value="85" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_windows_signing" value="85" />
+      <lineNumber testId="path:cmake/lockd_build_tests.cmake test:lockd_workflows" value="55" />
       <lineNumber testId="path:null test:lockd_dll" value="129" />
       <lineNumber testId="path:null test:lockd_lifetimes" value="128" />
       <lineNumber testId="path:null test:lockd_protocol" value="124" />

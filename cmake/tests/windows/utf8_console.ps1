@@ -23,6 +23,14 @@ if (Test-Path -LiteralPath $Log) {
 $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') `
     -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-EncodedCommand', $encoded) `
-    -WindowStyle Hidden -Wait -PassThru
+    -WindowStyle Hidden -PassThru
+# Start-Process -Wait also waits for descendants, including MSVC's persistent PDB
+# server. Only the fixture shell's exit determines whether its build finished.
+try {
+    $null = $process.Handle
+    $process.WaitForExit()
+    $exitCode = $process.ExitCode
+}
+finally { $process.Dispose() }
 [Console]::Out.Write([IO.File]::ReadAllText($Log))
-exit $process.ExitCode
+exit $exitCode
