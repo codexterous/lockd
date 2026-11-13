@@ -7,6 +7,16 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 
+function Get-LockdHostArchitecture([string]$ProcessArchitecture, [string]$NativeArchitecture) {
+    $machine = if ($NativeArchitecture) { $NativeArchitecture } else { $ProcessArchitecture }
+    switch ($machine.ToLowerInvariant()) {
+        'amd64' { return 'x86_64' }
+        'arm64' { return 'arm64' }
+        'x86' { return 'x86' }
+        default { throw "Unsupported build host architecture: $machine" }
+    }
+}
+
 # GitHub's Windows runner already provides vcpkg. Honor an explicit selection
 # first; don't clone a project-private copy of the package manager.
 if (!$env:VCPKG_ROOT -and $env:VCPKG_INSTALLATION_ROOT) {
@@ -23,13 +33,7 @@ $selectedVcpkgRoot = $env:VCPKG_ROOT
 
 # Use the host architecture even from an x86 developer shell. Build tools and
 # downloads are shared; selecting another target must not select an empty cache.
-$hostMachine = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-$hostArchitecture = switch ($hostMachine.ToLowerInvariant()) {
-    'amd64' { 'x86_64' }
-    'arm64' { 'arm64' }
-    'x86' { 'x86' }
-    default { throw "Unsupported build host architecture: $hostMachine" }
-}
+$hostArchitecture = Get-LockdHostArchitecture $env:PROCESSOR_ARCHITECTURE $env:PROCESSOR_ARCHITEW6432
 $hostBuild = Join-Path $repositoryRoot "output/obj/$hostArchitecture/opt/shared"
 if ($env:LOCKD_HOST_BUILD_DIR) {
     $hostBuild = [System.IO.Path]::GetFullPath($env:LOCKD_HOST_BUILD_DIR)

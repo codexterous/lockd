@@ -13,12 +13,13 @@ $vswhere = Join-Path $programFiles 'Microsoft Visual Studio/Installer/vswhere.ex
 New-FixtureDirectory (Split-Path -Parent $vswhere)
 $fixture = Join-Path $root 'developer_shell.ps1'
 @'
-param($VsWhere, $EnvironmentScript, $HostMachine)
+param($VsWhere, $EnvironmentScript, $ProgramFiles)
 $ErrorActionPreference = 'Stop'
-# Windows can rewrite processor variables at process startup. Set the simulated
-# host here, after startup, so the real runner cannot change this fixture's input.
-$env:PROCESSOR_ARCHITECTURE = $HostMachine
-$env:PROCESSOR_ARCHITEW6432 = $null
+$processMachineBefore = $env:PROCESSOR_ARCHITECTURE
+$nativeMachineBefore = $env:PROCESSOR_ARCHITEW6432
+# Keep the shell's startup environment and processor identity real. Only the
+# installed-compiler location belongs to this fixture's external discovery boundary.
+${env:ProgramFiles(x86)} = $ProgramFiles
 $script:discovered = $false
 function Find-FixtureVisualStudio {
     param([switch]$latest, $products, $requires, $property)
@@ -44,6 +45,10 @@ function Enter-VsDevShell {
     $script:arguments = $DevCmdArguments
 }
 . $EnvironmentScript -Architecture $env:LOCKD_TEST_ARCH
+if ($env:PROCESSOR_ARCHITECTURE -cne $processMachineBefore -or
+        $env:PROCESSOR_ARCHITEW6432 -cne $nativeMachineBefore) {
+    throw 'Compiler initialization changed the process identity'
+}
 @{ root = $env:VCPKG_ROOT; entered = $script:entered; arguments = $script:arguments
     discovered = $script:discovered } | ConvertTo-Json
 '@ | Set-Content -LiteralPath $fixture -Encoding UTF8
@@ -56,10 +61,14 @@ New-FixtureDirectory $pathRoot
 $fixturePath = ($env:PATH.Split(';') | Where-Object {
     $_ -and !(Test-Path -LiteralPath (Join-Path $_ 'vcpkg.exe'))
 }) -join ';'
-# Host and compiler target are independent, including ARM64 hosts building x86 targets.
-foreach ($case in @(@('AMD64', 'x86'), @('AMD64', 'x86_64'), @('AMD64', 'arm64'),
-        @('ARM64', 'x86'), @('ARM64', 'x86_64'), @('ARM64', 'arm64'))) {
-    $hostMachine, $architecture = $case
+# Native x64 and ARM64 CI hosts each exercise every target. Model host classification
+# below using data inputs rather than changing the running PowerShell host's identity.
+$hostMachine = if ($env:PROCESSOR_ARCHITEW6432) {
+    $env:PROCESSOR_ARCHITEW6432
+} else { $env:PROCESSOR_ARCHITECTURE }
+$expectedHost = @{ AMD64 = 'x86_64'; ARM64 = 'arm64'; x86 = 'x86' }[$hostMachine]
+Assert-True ($null -ne $expectedHost) "Unsupported test host: $hostMachine"
+foreach ($architecture in @('x86', 'x86_64', 'arm64')) {
     $compilerTarget = if ($architecture -eq 'x86_64') { 'x64' } else { $architecture }
     foreach ($initialized in @($false, $true)) {
         foreach ($selected in @('user', 'runner', 'path', 'unspecified')) {
@@ -67,7 +76,7 @@ foreach ($case in @(@('AMD64', 'x86'), @('AMD64', 'x86_64'), @('AMD64', 'arm64')
                 VCPKG_ROOT = $null; VCPKG_INSTALLATION_ROOT = $null; LOCKD_HOST_BUILD_DIR = ''
                 LOCKD_MSVC_TOOLSET_VERSION = $(if ($architecture -eq 'arm64') { '14.44' } else { '' })
                 VCToolsVersion = $(if ($initialized) { '14.44.35207' } else { '14.51.36247' })
-                PATH = $fixturePath; 'ProgramFiles(x86)' = $programFiles
+                PATH = $fixturePath
                 VSCMD_ARG_TGT_ARCH = $(if ($initialized) { $compilerTarget } else { 'other' })
                 LOCKD_TEST_ARCH = $architecture; LOCKD_TEST_VS = Join-Path $root 'visual-studio'
                 LOCKD_TEST_BUNDLED_VCPKG = $bundled
@@ -76,7 +85,7 @@ foreach ($case in @(@('AMD64', 'x86'), @('AMD64', 'x86_64'), @('AMD64', 'arm64')
             if ($selected -ne 'unspecified') { $environment.PATH = "$pathRoot;$fixturePath" }
             if ($selected -in @('user', 'runner')) { $environment.VCPKG_INSTALLATION_ROOT = $runner }
             $result = Invoke-TestScript $fixture @('-VsWhere', $vswhere, '-EnvironmentScript', $script,
-                    '-HostMachine', $hostMachine) `
+                    '-ProgramFiles', $programFiles) `
                 -Environment $environment
             Assert-Exit $result 0
             $actual = $result.Output | ConvertFrom-Json
@@ -109,21 +118,48 @@ New-FixtureDirectory (Split-Path -Parent $script)
 $hostFixture = Join-Path $WorkDirectory 'host_layout.ps1'
 @'
 param($Script, $Machine, $Wow64)
-# Apply the simulated native/WOW64 identity after Windows has initialized this process.
-$env:PROCESSOR_ARCHITECTURE = $Machine
-$env:PROCESSOR_ARCHITEW6432 = $Wow64
-& $Script
+# Load the production function under the real process identity, then classify data.
+$null = . $Script
+$processMachineBefore = $env:PROCESSOR_ARCHITECTURE
+$nativeMachineBefore = $env:PROCESSOR_ARCHITEW6432
+try { Get-LockdHostArchitecture $Machine $Wow64 }
+finally {
+    if ($env:PROCESSOR_ARCHITECTURE -cne $processMachineBefore -or
+            $env:PROCESSOR_ARCHITEW6432 -cne $nativeMachineBefore) {
+        throw 'Host classification changed the process identity'
+    }
+}
 '@ | Set-Content -LiteralPath $hostFixture -Encoding UTF8
 foreach ($case in @(@('AMD64', '', 'x86_64'), @('x86', 'AMD64', 'x86_64'),
         @('ARM64', '', 'arm64'), @('AMD64', 'ARM64', 'arm64'),
-        @('x86', 'ARM64', 'arm64'), @('x86', '', 'x86'))) {
+        @('x86', 'ARM64', 'arm64'), @('x86', '', 'x86'), @('amd64', '', 'x86_64'))) {
     $machine, $wow64, $expected = $case
     $result = Invoke-TestScript $hostFixture @('-Script', $script, '-Machine', $machine,
             '-Wow64', $wow64) -Environment @{ LOCKD_HOST_BUILD_DIR = $null }
     Assert-Exit $result 0
+    Assert-Equal $result.Output.Trim() $expected "$machine/$wow64 host classification"
+}
+foreach ($case in @(@('MIPS', ''), @('AMD64', 'MIPS'))) {
+    $machine, $wow64 = $case
+    $result = Invoke-TestScript $hostFixture @('-Script', $script, '-Machine', $machine,
+            '-Wow64', $wow64) -Environment @{ LOCKD_HOST_BUILD_DIR = $null }
+    Assert-Exit $result 1
+    Assert-True $result.Error.Contains('Unsupported build host architecture: MIPS') `
+        'Unsupported host must be rejected'
+}
+
+# Check the cache layout using real native and WOW64 processes. Both must select
+# the native host's directory, independently of the compiler target.
+$shells = @((Join-Path $PSHOME 'powershell.exe'))
+$wow64Shell = Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+if (Test-Path -LiteralPath $wow64Shell) { $shells += $wow64Shell }
+foreach ($shell in ($shells | Select-Object -Unique)) {
+    $result = Invoke-TestProcess $shell @('-NoProfile', '-NonInteractive', '-ExecutionPolicy',
+            'Bypass', '-File', $script) -Environment @{ LOCKD_HOST_BUILD_DIR = $null }
+    Assert-Exit $result 0
     $layout = $result.Output | ConvertFrom-Json
-    Assert-Equal $layout.dependencies (Join-Path $root "output/obj/$expected/opt/shared/dependencies") `
-        "$machine host cache"
+    Assert-Equal $layout.dependencies (Join-Path $root "output/obj/$expectedHost/opt/shared/dependencies") `
+        "$shell host cache"
 }
 $workspace = Join-Path $WorkDirectory 'extracted/output/obj/x86_64/opt/shared'
 $script = Join-Path $workspace 'source/lockd-test/scripts/release/windows_environment.ps1'
