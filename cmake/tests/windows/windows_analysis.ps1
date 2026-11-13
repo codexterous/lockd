@@ -13,8 +13,12 @@ $vswhere = Join-Path $programFiles 'Microsoft Visual Studio/Installer/vswhere.ex
 New-FixtureDirectory (Split-Path -Parent $vswhere)
 $fixture = Join-Path $root 'developer_shell.ps1'
 @'
-param($VsWhere, $EnvironmentScript)
+param($VsWhere, $EnvironmentScript, $HostMachine)
 $ErrorActionPreference = 'Stop'
+# Windows can rewrite processor variables at process startup. Set the simulated
+# host here, after startup, so the real runner cannot change this fixture's input.
+$env:PROCESSOR_ARCHITECTURE = $HostMachine
+$env:PROCESSOR_ARCHITEW6432 = $null
 if (!(Test-Path -LiteralPath $VsWhere)) {
     Add-Type -OutputAssembly $VsWhere -OutputType ConsoleApplication -TypeDefinition @"
 using System;
@@ -46,14 +50,15 @@ New-FixtureDirectory $pathRoot
 $fixturePath = ($env:PATH.Split(';') | Where-Object {
     $_ -and !(Test-Path -LiteralPath (Join-Path $_ 'vcpkg.exe'))
 }) -join ';'
-foreach ($architecture in @('x86', 'x86_64', 'arm64')) {
+# Host and compiler target are independent, including ARM64 hosts building x86 targets.
+foreach ($case in @(@('AMD64', 'x86'), @('AMD64', 'x86_64'), @('AMD64', 'arm64'),
+        @('ARM64', 'x86'), @('ARM64', 'x86_64'), @('ARM64', 'arm64'))) {
+    $hostMachine, $architecture = $case
     $compilerTarget = if ($architecture -eq 'x86_64') { 'x64' } else { $architecture }
-    $hostMachine = if ($architecture -eq 'arm64') { 'ARM64' } else { 'AMD64' }
     foreach ($initialized in @($false, $true)) {
         foreach ($selected in @('user', 'runner', 'path', 'unspecified')) {
             $environment = @{
-                VCPKG_ROOT = $null; VCPKG_INSTALLATION_ROOT = $null; PROCESSOR_ARCHITEW6432 = $null
-                PROCESSOR_ARCHITECTURE = $hostMachine; LOCKD_HOST_BUILD_DIR = ''
+                VCPKG_ROOT = $null; VCPKG_INSTALLATION_ROOT = $null; LOCKD_HOST_BUILD_DIR = ''
                 LOCKD_MSVC_TOOLSET_VERSION = $(if ($architecture -eq 'arm64') { '14.44' } else { '' })
                 VCToolsVersion = $(if ($initialized) { '14.44.35207' } else { '14.51.36247' })
                 PATH = $fixturePath; 'ProgramFiles(x86)' = $programFiles
@@ -64,7 +69,8 @@ foreach ($architecture in @('x86', 'x86_64', 'arm64')) {
             if ($selected -eq 'user') { $environment.VCPKG_ROOT = $user }
             if ($selected -ne 'unspecified') { $environment.PATH = "$pathRoot;$fixturePath" }
             if ($selected -in @('user', 'runner')) { $environment.VCPKG_INSTALLATION_ROOT = $runner }
-            $result = Invoke-TestScript $fixture @('-VsWhere', $vswhere, '-EnvironmentScript', $script) `
+            $result = Invoke-TestScript $fixture @('-VsWhere', $vswhere, '-EnvironmentScript', $script,
+                    '-HostMachine', $hostMachine) `
                 -Environment $environment
             Assert-Exit $result 0
             $actual = $result.Output | ConvertFrom-Json
@@ -80,7 +86,8 @@ foreach ($architecture in @('x86', 'x86_64', 'arm64')) {
                 $compilerHost = if ($hostMachine -eq 'ARM64') { 'arm64' } else { 'x64' }
                 $arguments = "-arch=$compilerTarget -host_arch=$compilerHost"
                 if ($architecture -eq 'arm64') { $arguments += ' -vcvars_ver=14.44' }
-                Assert-Equal $actual.arguments $arguments "$architecture developer shell arguments"
+                Assert-Equal $actual.arguments $arguments `
+                    "$hostMachine to $architecture developer shell arguments"
             }
         }
     }
@@ -92,15 +99,20 @@ $root = Join-Path $WorkDirectory 'layout'
 $script = Join-Path $root 'scripts/release/windows_environment.ps1'
 New-FixtureDirectory (Split-Path -Parent $script)
 [IO.File]::WriteAllText($script, $prefix + "`n`$layout | ConvertTo-Json -Compress`n")
+$hostFixture = Join-Path $WorkDirectory 'host_layout.ps1'
+@'
+param($Script, $Machine, $Wow64)
+# Apply the simulated native/WOW64 identity after Windows has initialized this process.
+$env:PROCESSOR_ARCHITECTURE = $Machine
+$env:PROCESSOR_ARCHITEW6432 = $Wow64
+& $Script
+'@ | Set-Content -LiteralPath $hostFixture -Encoding UTF8
 foreach ($case in @(@('AMD64', '', 'x86_64'), @('x86', 'AMD64', 'x86_64'),
-        @('ARM64', '', 'arm64'), @('x86', '', 'x86'))) {
+        @('ARM64', '', 'arm64'), @('AMD64', 'ARM64', 'arm64'),
+        @('x86', 'ARM64', 'arm64'), @('x86', '', 'x86'))) {
     $machine, $wow64, $expected = $case
-    # Native shells omit the WOW64 variable; an empty entry is a different process input.
-    $wow64Value = if ($wow64) { $wow64 } else { $null }
-    $result = Invoke-TestScript $script -Environment @{
-        PROCESSOR_ARCHITECTURE = $machine; PROCESSOR_ARCHITEW6432 = $wow64Value
-        LOCKD_HOST_BUILD_DIR = $null
-    }
+    $result = Invoke-TestScript $hostFixture @('-Script', $script, '-Machine', $machine,
+            '-Wow64', $wow64) -Environment @{ LOCKD_HOST_BUILD_DIR = $null }
     Assert-Exit $result 0
     $layout = $result.Output | ConvertFrom-Json
     Assert-Equal $layout.dependencies (Join-Path $root "output/obj/$expected/opt/shared/dependencies") `
