@@ -1,4 +1,7 @@
 # Dot-source this file from a PowerShell session before running the release builds.
+# Load these cmdlets directly; cold command discovery can otherwise analyze unrelated
+# modules before finding built-in commands such as Resolve-Path.
+#Requires -Modules Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
 param(
     [ValidateSet('x86', 'x86_64', 'arm64')][string] $Architecture = 'x86_64',
     [string] $ToolsetVersion = $env:LOCKD_MSVC_TOOLSET_VERSION
@@ -26,10 +29,11 @@ if (!$env:VCPKG_ROOT -and $env:VCPKG_INSTALLATION_ROOT) {
 # Resolve PATH before VsDevCmd changes PATH and replaces VCPKG_ROOT.
 # Keep that user selection even when the compiler comes from another installation.
 if (!$env:VCPKG_ROOT) {
-    # Exact command lookup can auto-import modules when the program is absent.
-    # Enumerate native applications, then match the filename, so an optional PATH
-    # probe does not execute unrelated module initialization code.
-    $selectedVcpkg = Get-Command -Name 'vcpkg.exe*' -CommandType Application `
+    # Exact names can auto-import modules; wildcard names still analyze available
+    # module manifests, even with the Application filter. ListImported excludes that
+    # module search while keeping native PATH discovery. Match the exact filename
+    # afterward so vcpkg.exe.exe cannot select another installation.
+    $selectedVcpkg = Get-Command -Name 'vcpkg.exe*' -CommandType Application -ListImported `
         -ErrorAction SilentlyContinue | Where-Object Name -eq 'vcpkg.exe' | Select-Object -First 1
     if ($selectedVcpkg) { $env:VCPKG_ROOT = Split-Path -Parent $selectedVcpkg.Source }
 }
