@@ -15,6 +15,11 @@ $fixture = Join-Path $root 'developer_shell.ps1'
 @'
 param($VsWhere, $EnvironmentScript, $ProgramFiles)
 $ErrorActionPreference = 'Stop'
+# Keep timeout checkpoints outside the redirected streams and JSON result.
+function Set-FixtureStage([string]$Stage) {
+    [IO.File]::WriteAllText($env:LOCKD_TEST_SHELL_STAGE, $Stage)
+}
+Set-FixtureStage 'fixture startup'
 $processMachineBefore = $env:PROCESSOR_ARCHITECTURE
 $nativeMachineBefore = $env:PROCESSOR_ARCHITEW6432
 # Keep the shell's startup environment and processor identity real. Only the
@@ -23,6 +28,7 @@ ${env:ProgramFiles(x86)} = $ProgramFiles
 $script:discovered = $false
 function Find-FixtureVisualStudio {
     param([switch]$latest, $products, $requires, $property)
+    Set-FixtureStage 'Visual Studio discovery'
     $component = if ($env:LOCKD_TEST_ARCH -eq 'arm64') { 'ARM64' } else { 'x86.x64' }
     if (!$latest -or $products -ne '*' -or $property -ne 'installationPath' -or
             $requires -ne "Microsoft.VisualStudio.Component.VC.Tools.$component") {
@@ -36,21 +42,26 @@ function Find-FixtureVisualStudio {
 # synthetic vswhere.exe adds unrelated compiler/runtime startup to host-selection tests.
 Set-Alias -Name $VsWhere -Value Find-FixtureVisualStudio
 $script:entered = $false
-function Import-Module { param($Name) }
+function Import-Module { param($Name); Set-FixtureStage 'developer shell module' }
 function Enter-VsDevShell {
     param($VsInstallPath, [switch] $SkipAutomaticLocation, $DevCmdArguments)
+    Set-FixtureStage 'developer shell entry'
     if ($VsInstallPath -ne $env:LOCKD_TEST_VS) { throw 'Wrong compiler' }
     $env:VCPKG_ROOT = $env:LOCKD_TEST_BUNDLED_VCPKG
     $script:entered = $true
     $script:arguments = $DevCmdArguments
 }
+Set-FixtureStage 'environment initialization'
 . $EnvironmentScript -Architecture $env:LOCKD_TEST_ARCH
+Set-FixtureStage 'environment initialized'
 if ($env:PROCESSOR_ARCHITECTURE -cne $processMachineBefore -or
         $env:PROCESSOR_ARCHITEW6432 -cne $nativeMachineBefore) {
     throw 'Compiler initialization changed the process identity'
 }
+Set-FixtureStage 'JSON serialization'
 @{ root = $env:VCPKG_ROOT; entered = $script:entered; arguments = $script:arguments
     discovered = $script:discovered } | ConvertTo-Json
+Set-FixtureStage 'fixture complete'
 '@ | Set-Content -LiteralPath $fixture -Encoding UTF8
 $user = Join-Path $root 'user-vcpkg'
 $runner = Join-Path $root 'runner-vcpkg'
@@ -58,6 +69,32 @@ $bundled = Join-Path $root 'visual-studio/VC/vcpkg'
 $pathRoot = Join-Path $root 'path-vcpkg'
 New-FixtureDirectory $pathRoot
 [IO.File]::WriteAllText((Join-Path $pathRoot 'vcpkg.exe'), '')
+$decoyRoot = Join-Path $root 'decoy-vcpkg'
+New-FixtureDirectory $decoyRoot
+[IO.File]::WriteAllText((Join-Path $decoyRoot 'vcpkg.exe.exe'), '')
+
+# A native executable probe must not import PowerShell modules with the same name.
+# Explicit exports let command discovery identify this module without running it.
+$moduleRoot = Join-Path $root 'modules'
+$module = Join-Path $moduleRoot 'vcpkg_discovery_probe'
+New-FixtureDirectory $module
+@'
+@{
+    ModuleVersion = '1.0'
+    RootModule = 'vcpkg_discovery_probe.psm1'
+    FunctionsToExport = @('vcpkg.exe')
+    CmdletsToExport = @()
+    AliasesToExport = @()
+}
+'@ | Set-Content -LiteralPath (Join-Path $module 'vcpkg_discovery_probe.psd1') -Encoding UTF8
+@'
+[IO.File]::WriteAllText($env:LOCKD_TEST_VCPKG_MODULE_TRACE, 'imported')
+throw 'Native vcpkg discovery must not import a PowerShell module'
+function vcpkg.exe {}
+'@ | Set-Content -LiteralPath (Join-Path $module 'vcpkg_discovery_probe.psm1') -Encoding UTF8
+$moduleTrace = Join-Path $root 'module-imported.txt'
+Remove-Item -LiteralPath $moduleTrace -ErrorAction SilentlyContinue
+$shellStage = Join-Path $root 'developer-shell-stage.txt'
 $fixturePath = ($env:PATH.Split(';') | Where-Object {
     $_ -and !(Test-Path -LiteralPath (Join-Path $_ 'vcpkg.exe'))
 }) -join ';'
@@ -71,22 +108,36 @@ Assert-True ($null -ne $expectedHost) "Unsupported test host: $hostMachine"
 foreach ($architecture in @('x86', 'x86_64', 'arm64')) {
     $compilerTarget = if ($architecture -eq 'x86_64') { 'x64' } else { $architecture }
     foreach ($initialized in @($false, $true)) {
-        foreach ($selected in @('user', 'runner', 'path', 'unspecified')) {
+        foreach ($selected in @('unspecified', 'user', 'runner', 'path')) {
             $environment = @{
                 VCPKG_ROOT = $null; VCPKG_INSTALLATION_ROOT = $null; LOCKD_HOST_BUILD_DIR = ''
                 LOCKD_MSVC_TOOLSET_VERSION = $(if ($architecture -eq 'arm64') { '14.44' } else { '' })
                 VCToolsVersion = $(if ($initialized) { '14.44.35207' } else { '14.51.36247' })
                 PATH = $fixturePath
+                PSModulePath = "$moduleRoot;$env:PSModulePath"
+                LOCKD_TEST_VCPKG_MODULE_TRACE = $moduleTrace
+                LOCKD_TEST_SHELL_STAGE = $shellStage
                 VSCMD_ARG_TGT_ARCH = $(if ($initialized) { $compilerTarget } else { 'other' })
                 LOCKD_TEST_ARCH = $architecture; LOCKD_TEST_VS = Join-Path $root 'visual-studio'
                 LOCKD_TEST_BUNDLED_VCPKG = $bundled
             }
             if ($selected -eq 'user') { $environment.VCPKG_ROOT = $user }
             if ($selected -ne 'unspecified') { $environment.PATH = "$pathRoot;$fixturePath" }
+            if ($selected -eq 'path') { $environment.PATH = "$decoyRoot;$pathRoot;$fixturePath" }
             if ($selected -in @('user', 'runner')) { $environment.VCPKG_INSTALLATION_ROOT = $runner }
-            $result = Invoke-TestScript $fixture @('-VsWhere', $vswhere, '-EnvironmentScript', $script,
-                    '-ProgramFiles', $programFiles) `
-                -Environment $environment
+            [IO.File]::WriteAllText($shellStage, 'process not started')
+            try {
+                $result = Invoke-TestScript $fixture @('-VsWhere', $vswhere,
+                        '-EnvironmentScript', $script, '-ProgramFiles', $programFiles) `
+                    -Environment $environment
+            }
+            catch {
+                $stage = [IO.File]::ReadAllText($shellStage)
+                $caseDescription = "$hostMachine/$architecture/$initialized/$selected"
+                throw "$caseDescription; last fixture stage: $stage`n$($_.Exception.Message)"
+            }
+            Assert-Equal (Test-Path -LiteralPath $moduleTrace) $false `
+                "$architecture/$initialized/$selected native discovery imported a PowerShell module"
             Assert-Exit $result 0
             $actual = $result.Output | ConvertFrom-Json
             $expected = switch ($selected) {

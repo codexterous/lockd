@@ -26,7 +26,11 @@ if (!$env:VCPKG_ROOT -and $env:VCPKG_INSTALLATION_ROOT) {
 # Resolve PATH before VsDevCmd changes PATH and replaces VCPKG_ROOT.
 # Keep that user selection even when the compiler comes from another installation.
 if (!$env:VCPKG_ROOT) {
-    $selectedVcpkg = Get-Command vcpkg.exe -ErrorAction SilentlyContinue
+    # Exact command lookup can auto-import modules when the program is absent.
+    # Enumerate native applications, then match the filename, so an optional PATH
+    # probe does not execute unrelated module initialization code.
+    $selectedVcpkg = Get-Command -Name 'vcpkg.exe*' -CommandType Application `
+        -ErrorAction SilentlyContinue | Where-Object Name -eq 'vcpkg.exe' | Select-Object -First 1
     if ($selectedVcpkg) { $env:VCPKG_ROOT = Split-Path -Parent $selectedVcpkg.Source }
 }
 $selectedVcpkgRoot = $env:VCPKG_ROOT
