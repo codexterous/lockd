@@ -15,7 +15,8 @@ else ()
             --architecture "${LOCKD_INSTALLER_ARCH}"
             COMMAND_ERROR_IS_FATAL ANY)
 endif ()
-execute_process(COMMAND "${Lockd_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+        "${Lockd_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
         -File "${Lockd_SOURCE_DIR}/scripts/release/build_windows_installer.ps1"
         -Architecture "${LOCKD_INSTALLER_ARCH}" -Python "${Python3_EXECUTABLE}"
         ${Lockd_INSTALLER_OPTIONS}

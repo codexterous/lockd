@@ -41,9 +41,13 @@ function(run_package directory mode)
     if (mode STREQUAL fail)
         set(failure FAILS)
     endif ()
+    # The frontend keeps its parent environment, but its SDK builder must load
+    # Windows PowerShell's own modules independently of that parent module path.
     lockd_test_run(${failure} OUTPUT output COMMAND "${CMAKE_COMMAND}" -E env
             "LOCKD_HOST_BUILD_DIR=${native}" "WHEEL_TRACE=${trace_file}"
             "SDK_BUILD_TRACE=${builds}" "SDK_PREFIX=${sdk}" "CMAKE_GENERATOR=NMake Makefiles"
+            "PSModulePath=${directory}/parent-modules"
+            "LOCKD_TEST_PARENT_MODULE_PATH=${directory}/parent-modules"
             "${CMAKE_COMMAND}" ${settings} -P "${root}/cmake/lockd_python_package.cmake")
     set(package_output "${output}" PARENT_SCOPE)
     if (NOT mode STREQUAL fail)
@@ -73,6 +77,10 @@ Path(os.environ['WHEEL_TRACE']).write_text(json.dumps({
     set(builder [=[
 param([string] $Python)
 $ErrorActionPreference = 'Stop'
+if ($env:PSModulePath.Split([IO.Path]::PathSeparator) -contains
+        $env:LOCKD_TEST_PARENT_MODULE_PATH) {
+    throw 'CMake must not pass the parent module path to Windows PowerShell'
+}
 Add-Content -LiteralPath $env:SDK_BUILD_TRACE -Value $Python
 foreach ($name in @('include/boost-1_88/boost/version.hpp',
         'lib/boost_python@suffix@-fixture.lib', 'lib/boost_python@suffix@-fixture.dll')) {

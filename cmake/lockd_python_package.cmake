@@ -101,7 +101,8 @@ if (LOCKD_PACKAGE_BUILD_DIR)
         if (NOT EXISTS "${Lockd_PACKAGE_BOOST_PREFIX}/include/boost-1_88/boost/version.hpp" OR
                 NOT Lockd_PACKAGE_BOOST_LIBRARIES OR NOT Lockd_PACKAGE_BOOST_DLLS)
             find_program(Lockd_POWERSHELL powershell REQUIRED)
-            execute_process(COMMAND "${Lockd_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            execute_process(COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+                    "${Lockd_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
                     -File "${Lockd_SOURCE_DIR}/scripts/release/build_boost_python.ps1"
                     -Python "${Python3_EXECUTABLE}" COMMAND_ERROR_IS_FATAL ANY)
         endif ()

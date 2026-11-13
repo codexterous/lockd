@@ -10,6 +10,12 @@ set(Lockd_BUILD_TEST_ROOT
 
 function(lockd_set_build_test_properties name)
     set_tests_properties("${name}" PROPERTIES TIMEOUT 300 LABELS native_build)
+    if (WIN32)
+        # CTest is an intermediate process between pwsh and Windows PowerShell.
+        # Let Windows PowerShell construct its own module path, instead of loading
+        # PowerShell 7 modules against the incompatible .NET Framework runtime.
+        set_property(TEST "${name}" PROPERTY ENVIRONMENT_MODIFICATION "PSModulePath=unset:")
+    endif ()
     if (MSVC)
         # A compiler path alone cannot reproduce the selected MSVC toolchain. CTest may
         # start outside the developer environment used by CMake, including from an IDE.

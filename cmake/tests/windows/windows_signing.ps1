@@ -1,6 +1,11 @@
 # Prepare isolated unsigned archives and verify rejection before installer rebuilding.
 param([string] $Repository, [string] $WorkDirectory)
 . "$PSScriptRoot/test_helpers.ps1"
+if ($env:LOCKD_TEST_PARENT_MODULE_PATH) {
+    Assert-True ($env:PSModulePath.Split([IO.Path]::PathSeparator) -notcontains
+        $env:LOCKD_TEST_PARENT_MODULE_PATH) `
+        'CTest must not pass the parent module path to Windows PowerShell'
+}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $tar = (Get-Command tar.exe -ErrorAction Stop).Source
 
