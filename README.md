@@ -35,7 +35,7 @@ Run a daemon, then connect clients using the same lock name. For a local foregro
 or FreeBSD:
 
 ```sh
-./output/x86_64/opt/shared/lockd --no-fork --no-drop
+lockd --no-fork --no-drop
 ```
 
 On Windows, run `lockd.exe` from the portable download, or use the installer. The default address is

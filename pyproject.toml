@@ -83,5 +83,6 @@ include = [
     "lib/pylockd/license.txt",
     "lib/pylockd/tests/*.py", "utility/lockd_test/include/**",
     "utility/lockd_test/CMakeLists.txt", "utility/lockd_test/source/**",
+    "utility/lockd_test/tests/**",
 ]
 exclude = ["**/__pycache__/**", "**/output/**"]

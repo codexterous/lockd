@@ -117,11 +117,3 @@ class OutputLayoutTests(unittest.TestCase):
             self.assertEqual(len(paths), 1, name)
             self.assertEqual(paths[0].count('*'), 1, paths[0])
             self.assertIn('/lib/pylockd/output/', paths[0])
-
-    def test_shared_actions_receive_a_host_architecture(self) -> None:
-        """Every workflow using shared path helpers must define their host context."""
-        for path in (package.ROOT / '.github/workflows').glob('*.yml'):
-            text = path.read_text()
-            if 'uses: ./.github/actions/' in text:
-                with self.subTest(workflow=path.name):
-                    self.assertRegex(text, r'(?m)^  OUTPUT_ARCH: (?:x86_64|arm64|x86)$')

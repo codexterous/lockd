@@ -136,6 +136,15 @@ endif ()
 Use separate installation prefixes for static and shared SDKs. For a fully static GCC/Clang
 application, also pass `-static` to that application's link step.
 
+On Unix, both SDKs use `-llockd` for the C++ client and `-llockd_dll` for the C wrapper when linking
+directly. Static archives are `liblockd.a` and `liblockd_dll.a`; shared linker files are
+`liblockd.so` and `liblockd_dll.so` on ELF systems. CMake targets also supply the SDK's required
+dependencies and compile definitions, so prefer them to manually maintained linker flags.
+
+A C application using the static C wrapper needs `CXX` enabled in its CMake project, for example
+`project(app LANGUAGES C CXX)`. The implementation is C++, so this lets CMake select the C++ linker
+and runtime libraries while compiling the application as C.
+
 ## Custom dependencies and troubleshooting
 
 For dependencies outside the usual search paths, configure with

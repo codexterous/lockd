@@ -70,6 +70,11 @@ jobs:
         run: git ls-files -z -- '*.py' | xargs -0 python -m ruff format --check --
       - name: Test packaging
         run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Test native build configuration
+        run: |
+          build=output/obj/x86_64/opt/shared/verifications/build_checks
+          cmake -S cmake/tests -B "$build" -G Ninja
+          ctest --test-dir "$build" --output-on-failure --no-tests=error --parallel 2
       - name: Assign or recover the build version
         env:
           GH_TOKEN: ${{ github.token }}

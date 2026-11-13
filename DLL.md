@@ -33,8 +33,10 @@ shows how to compile and link against the shared SDK.
 The C API in `liblockd_dll.h` is stable within ABI version 1. Compatible additions retain this
 version; incompatible changes require a new ABI version, independently of the release version.
 
-On ELF systems, the SONAME is `libliblockd_dll.so.1`; Windows keeps `liblockd_dll.dll`. Relink
-applications built against an unversioned Unix library to record the versioned dependency.
+On ELF systems, the SONAME is `liblockd_dll.so.1`; Windows keeps `liblockd_dll.dll`. Relink
+applications built against an unversioned Unix library or the earlier `libliblockd_dll.so.1` name to
+record the current versioned dependency. The C++ runtime now uses `liblockd.so.1` instead of
+`libliblockd.so.1`; applications linked directly to that runtime also need relinking.
 
 ## C
 
@@ -85,7 +87,7 @@ Save this as `example.c` and compile and link against an installed shared SDK on
 
 ```sh
 cc -std=c99 example.c -o example \
-    -I/path/to/sdk/include -L/path/to/sdk/lib -lliblockd_dll
+    -I/path/to/sdk/include -L/path/to/sdk/lib -llockd_dll
 ```
 
 Replace `/path/to/sdk` with the SDK installation prefix, using `lib64` instead of `lib` if needed.
@@ -271,7 +273,8 @@ it isn't a full Rust client library.
 ```rust
 use std::ffi::{c_char, c_void, CStr, CString};
 
-#[link(name = "liblockd_dll")]
+#[cfg_attr(windows, link(name = "liblockd_dll"))]
+#[cfg_attr(unix, link(name = "lockd_dll"))]
 extern "C" {
     fn create_mutex(server: *const c_char, port: u16, timeout: i64,
                     name: *const c_char) -> *mut c_void;
@@ -419,7 +422,7 @@ node example.cjs C:/path/to/liblockd_dll.dll
 On Linux or FreeBSD:
 
 ```sh
-node example.cjs /path/to/sdk/lib/libliblockd_dll.so
+node example.cjs /path/to/sdk/lib/liblockd_dll.so
 ```
 
 The runtime loader must also find the library's dependencies. These calls block the calling thread,

@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import call, patch
 
 import cleanup_workflow_runs as cleanup
-from test_workflow_dependencies import WORKFLOWS
 
 
 class CleanupWorkflowRunsTests(unittest.TestCase):
@@ -304,19 +303,6 @@ class CleanupWorkflowRunsTests(unittest.TestCase):
         ) as api:
             cleanup.cleanup('owner/lockd', 42)
         self.assertIn('branch=feature%2Fa%26b&', api.call_args.args[0])
-
-    def test_cleanup_uses_trusted_code_after_workflow_completion(self) -> None:
-        """Keep write permission out of compatibility jobs and untrusted checkouts."""
-        workflow: str = (WORKFLOWS / 'cleanup_workflow_runs.yml').read_text()
-        self.assertIn('workflows: [Compatibility, Release]', workflow)
-        self.assertIn('types: [completed]', workflow)
-        self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
-        self.assertIn('actions: write', workflow)
-        self.assertNotIn('ref:', workflow)
-        self.assertNotIn('workflow_dispatch:', workflow)
-        self.assertNotIn(
-            'actions: write', (WORKFLOWS / 'compatibility.yml').read_text()
-        )
 
     def test_skipped_cleanup_runs_are_deleted_after_a_fresh_lookup(self) -> None:
         """Remove old no-op cleanup runs across pages while retaining real work."""

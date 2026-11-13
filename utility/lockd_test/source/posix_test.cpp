@@ -74,6 +74,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#if defined(__linux__)
+# include <algorithm>
+
+# include <boost/test/tree/decorator.hpp>
+
+# include <grp.h>
+#endif
+
 #include "../../../include/logging.hpp"
 #include "../../../include/platform/posix.hpp"
 #include "../include/daemon_fixture.hpp"
@@ -106,7 +114,205 @@ void with_runtime_parent(const std::function<void(const std::filesystem::path&, 
 }
 
 
+#if defined(LOCKD_STARTUP_FAILURES_NAME)
+void check_startup_failure(
+        const char* const operation, const char* const diagnostic, const bool drop_privileges
+)
+{
+    with_runtime_parent([=](const auto& root, const int /*parent*/) {
+        const auto output_path = root / "console.txt";
+        const auto shim = std::filesystem::read_symlink("/proc/self/exe").parent_path() /
+                          LOCKD_STARTUP_FAILURES_NAME;
+        BOOST_REQUIRE_MESSAGE(std::filesystem::is_regular_file(shim), "Find the native fault shim");
+        ldt::process::environment environment = ldt::process::native_environment();
+        environment["LD_PRELOAD"] = shim.string();
+        environment["LOCKD_TEST_FAIL"] = operation;
+        const std::vector<std::string> arguments{
+                drop_privileges ? "--no-fork" : "--no-drop",
+                "--interface",
+                "127.0.0.1",
+                "--port",
+                "0",
+                "--threads",
+                "1",
+                "--user",
+                std::to_string(getuid()),
+                "--group",
+                std::to_string(getgid()),
+                "--pid-file",
+                (root / "lockd.pid").string(),
+                "--log-file",
+                (root / "lockd.log").string(),
+                "--emit-running"
+        };
+        ldt::process::child child(
+                ldt::daemon_path().string(),
+                ldt::process::args(arguments),
+                ldt::process::env = environment,
+                (ldt::process::std_out & ldt::process::std_err) > output_path.string()
+        );
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (child.running() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool exited = !child.running();
+        if (!exited)
+            child.terminate();
+        child.wait();
+        BOOST_REQUIRE_MESSAGE(exited, "A failed startup syscall must not leave a running daemon");
+        std::ifstream file(output_path);
+        const std::string output(
+                (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()
+        );
+        BOOST_CHECK_MESSAGE(child.exit_code() != 0, "Startup must report failure: " << output);
+        BOOST_CHECK_MESSAGE(output.find(diagnostic) != std::string::npos, output);
+        BOOST_CHECK_MESSAGE(output.find("lockd is running") == std::string::npos, output);
+    });
+}
+#endif
+
+
 BOOST_AUTO_TEST_SUITE(lifetimes)
+
+
+#if defined(__linux__)
+# if defined(LOCKD_STARTUP_FAILURES_NAME)
+BOOST_AUTO_TEST_CASE(fork_failure_prevents_daemon_startup)
+{
+    check_startup_failure("", "Forking daemon", false);
+}
+
+
+BOOST_AUTO_TEST_CASE(
+        privilege_drop_failures_prevent_daemon_startup,
+        *boost::unit_test::precondition([](const auto /*test*/) { return geteuid() == 0; })
+)
+{
+    check_startup_failure("initgroups", "Unable to initialize groups", true);
+    check_startup_failure("setgid", "Unable to drop gid", true);
+    check_startup_failure("setuid", "Unable to drop uid", true);
+}
+# endif
+
+
+BOOST_AUTO_TEST_CASE(
+        real_privilege_drop_removes_root_groups_and_preserves_pid_parent,
+        *boost::unit_test::precondition([](const auto /*test*/) { return geteuid() == 0; })
+)
+{
+    const auto* const account = getpwnam("nobody");
+    BOOST_REQUIRE_MESSAGE(account != nullptr, "The real privilege-drop test needs nobody");
+    const auto uid = account->pw_uid;
+    const auto gid = account->pw_gid;
+    int count = 16;
+    std::vector<gid_t> expected_groups(count);
+    if (getgrouplist(account->pw_name, gid, expected_groups.data(), &count) < 0) {
+        expected_groups.resize(count);
+        BOOST_REQUIRE_MESSAGE(
+                getgrouplist(account->pw_name, gid, expected_groups.data(), &count) >= 0,
+                "Resolve the selected account's supplementary groups"
+        );
+    }
+    expected_groups.resize(count);
+    std::sort(expected_groups.begin(), expected_groups.end());
+
+    with_runtime_parent([&](const auto& root, const int /*parent*/) {
+        const auto directory = root / "parent";
+        const auto log = directory / "lockd.log";
+        BOOST_REQUIRE_EQUAL(chmod(root.c_str(), 0755), 0);
+        BOOST_REQUIRE_EQUAL(chmod(directory.c_str(), 0777), 0);
+        std::ofstream(log).close();
+        BOOST_REQUIRE_EQUAL(chmod(log.c_str(), 0666), 0);
+        boost::asio::io_context service;
+        boost::asio::ip::tcp::acceptor reservation(
+                service, {boost::asio::ip::address_v4::loopback(), 0}
+        );
+        const auto endpoint = reservation.local_endpoint();
+        reservation.close();
+        const std::vector<std::string> arguments{
+                "--no-fork",
+                "--user",
+                std::to_string(uid),
+                "--group",
+                std::to_string(gid),
+                "--interface",
+                "127.0.0.1",
+                "--port",
+                std::to_string(endpoint.port()),
+                "--threads",
+                "1",
+                "--pid-file",
+                (directory / "lockd.pid").string(),
+                "--log-file",
+                log.string()
+        };
+        ldt::process::child child(
+                ldt::daemon_path().string(),
+                ldt::process::args(arguments),
+                ldt::process::start_dir = directory.string(),
+                (ldt::process::std_out & ldt::process::std_err) > (root / "console.txt").string()
+        );
+        std::shared_ptr<ldt::protocol_connection> connection;
+        ldt::poll_until(
+                service,
+                [&] {
+                    BOOST_REQUIRE_MESSAGE(
+                            child.running(), "The daemon must remain alive until readiness"
+                    );
+                    try {
+                        connection = std::make_shared<ldt::protocol_connection>(service, endpoint);
+                        return true;
+                    }
+                    catch (const boost::system::system_error& error) {
+                        if (error.code() != boost::asio::error::connection_refused)
+                            throw;
+                        return false;
+                    }
+                },
+                "the unprivileged daemon listener"
+        );
+
+        // Inspect all kernel identity fields after real initgroups/setgid/setuid calls.
+        // The existing root-owned PID directory must retain its administrator ownership.
+        std::ifstream status("/proc/" + std::to_string(child.id()) + "/status");
+        BOOST_REQUIRE_MESSAGE(status.good(), "Read the running daemon's kernel identity");
+        bool saw_uid = false, saw_gid = false, saw_groups = false;
+        std::string line;
+        while (std::getline(status, line)) {
+            std::istringstream fields(line);
+            std::string name;
+            fields >> name;
+            if (name == "Uid:" || name == "Gid:") {
+                const auto expected = name == "Uid:" ? uid : gid;
+                for (unsigned int index = 0; index < 4; ++index) {
+                    unsigned long value = 0;
+                    BOOST_REQUIRE_MESSAGE(fields >> value, "Read every identity field");
+                    BOOST_CHECK_EQUAL(value, expected);
+                }
+                saw_uid = saw_uid || name == "Uid:";
+                saw_gid = saw_gid || name == "Gid:";
+            }
+            else if (name == "Groups:") {
+                std::vector<gid_t> actual;
+                gid_t group = 0;
+                while (fields >> group)
+                    actual.push_back(group);
+                std::sort(actual.begin(), actual.end());
+                BOOST_CHECK_EQUAL_COLLECTIONS(
+                        actual.begin(), actual.end(), expected_groups.begin(), expected_groups.end()
+                );
+                saw_groups = true;
+            }
+        }
+        BOOST_CHECK_MESSAGE(saw_uid && saw_gid && saw_groups, "Inspect each kernel identity row");
+        struct stat parent{};
+        BOOST_REQUIRE_EQUAL(stat(directory.c_str(), &parent), 0);
+        BOOST_CHECK_EQUAL(parent.st_uid, 0U);
+        connection->close();
+        child.terminate();
+        child.wait();
+    });
+}
+#endif
 
 
 BOOST_AUTO_TEST_CASE(usr1_reopens_logs_and_preserves_locks_in_both_rotation_modes)

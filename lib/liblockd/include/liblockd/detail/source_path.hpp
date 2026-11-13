@@ -51,8 +51,8 @@
 
 namespace lld::detail {
 
-// CMake supplies the checkout prefix with a trailing slash. Only remove that prefix;
-// leave the compiler's remaining filename intact, including any relative components.
+// CMake supplies the checkout prefix with a trailing slash. Preserve relative components
+// within the remaining filename, whether CMake or the compiler removed the source root.
 constexpr const char* relative_source_path(const char* const file, const std::string_view& root)
 {
     const std::string_view path(file);
@@ -62,6 +62,19 @@ constexpr const char* relative_source_path(const char* const file, const std::st
         ++prefix;
     if (!root.empty() && prefix == root.size())
         return file + prefix;
+
+    // Reproducible builds can map __FILE__ to a relative path while the root definition
+    // remains absolute. Keep that path in project builds, trimming only leading ./ markers.
+    // Check both Unix and Windows roots here because std::filesystem is not constexpr in C++17.
+    const bool qualified = !path.empty() && (path.front() == '/' || path.front() == '\\' ||
+                                             (path.size() > 1 && path[1] == ':'));
+    if (!root.empty() && !qualified) {
+        std::size_t start = 0;
+        while (path.size() - start >= 2 && path[start] == '.' &&
+               (path[start + 1] == '/' || path[start + 1] == '\\'))
+            start += 2;
+        return file + start;
+    }
 
     // An installed SDK has no build-machine root definition. Keep only the filename
     // for code outside the configured source tree, without exposing its absolute path.

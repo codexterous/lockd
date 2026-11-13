@@ -20,7 +20,7 @@ def check_dependencies(output: str, environment: Path) -> None:
         match = re.match(r'\s*(\S+)\s+=>\s+(\S+)', line)
         if (
             match
-            and match[1].startswith(('libboost_', 'libliblockd'))
+            and match[1].startswith(('libboost_', 'liblockd', 'libliblockd'))
             and not Path(match[2]).resolve().is_relative_to(environment.resolve())
         ):
             raise RuntimeError(f"Wheel uses an external project dependency: {line}")

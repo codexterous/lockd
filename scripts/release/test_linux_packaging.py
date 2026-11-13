@@ -213,6 +213,8 @@ class LinuxPackagingTests(unittest.TestCase):
             'libboost_python311.so => not found',
             'libboost_python311.so => /usr/local/lib/boost.so (0x123)',
             'libliblockd.so.1 => /src/output/libliblockd.so.1 (0x123)',
+            'liblockd.so.1 => /src/output/liblockd.so.1 (0x123)',
+            'liblockd_dll.so.1 => /src/output/liblockd_dll.so.1 (0x123)',
         ):
             with self.subTest(output=output), self.assertRaises(RuntimeError):
                 check_dependencies(output, environment)

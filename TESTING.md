@@ -47,6 +47,30 @@ CLion's Run/Debug Configurations window groups the checked-in native test runs u
 These launch executables directly; they are not CTest configurations. Use the CTest commands above
 to run the tests registered with CMake.
 
+## Build and packaging checks
+
+CTest also checks native compiler configuration, SDK selection, version generation, source paths,
+and platform build scripts. Select these with `ctest --test-dir <build> -L native_build`. Windows
+checks use Windows PowerShell and isolated fixtures for installer and signing behavior. They don't
+install services. Python wheel configuration checks additionally need a supported x64 Python
+interpreter on Windows.
+
+To run the build checks independently of the daemon and Boost dependencies, configure their entry
+point with the same compiler environment used for a native build:
+
+```sh
+cmake -S cmake/tests -B output/obj/x86_64/opt/shared/verifications/build_checks -G Ninja
+ctest --test-dir output/obj/x86_64/opt/shared/verifications/build_checks --output-on-failure
+```
+
+Workflow graph and cache metadata checks require `.github` files. Compiler and version fixtures use
+local files and local Git repositories. These checks don't download packages or contact GitHub.
+Python release-tool tests cover the Python implementations and Python wheel packaging separately:
+
+```sh
+python -m unittest discover -s scripts/release -p 'test_*.py' -v
+```
+
 ## Load testing an external daemon
 
 Use `lockd_test -- --benchmark-test` (`-B`) to generate load against an already-running daemon,
@@ -83,8 +107,21 @@ cancellation, timeouts, and recursive acquisition.
 Windows service and installer tests run on disposable CI machines because they install, start, and
 remove real services. Ordinary native tests don't do that.
 
-Linux privilege-drop tests also need a disposable machine. Set `LOCKD_TEST_DAEMON` to the absolute
-daemon path and run `python3 utility/lockd_test/tests/test_startup.py -v` as root.
+Linux privilege-drop tests belong to the native `lifetimes` suite. The two syscall/identity cases
+skip unless the test runner is already root, just as their privilege checks require. Ordinary test
+runs don't request elevation. On a disposable Linux machine, an existing root session can select
+them directly:
+
+```sh
+lockd_test --run_test=lifetimes/privilege_drop_failures_prevent_daemon_startup
+lockd_test --run_test=lifetimes/real_privilege_drop_removes_root_groups_and_preserves_pid_parent
+```
+
+Use the built or installed executable's path. In dynamically linked Linux builds, keep
+`lockd_startup_failures.so` beside it; CMake builds and installs this fault-injection fixture with
+the native tests. Failed `fork` handling runs as a regular user. Fault injection is confined to each
+test's child process. Fully static daemon builds omit the two fault-injection cases because
+`LD_PRELOAD` cannot intercept their libc calls. The real privilege-drop case remains available.
 
 ## What CI runs
 
@@ -92,7 +129,7 @@ Compatibility checks run on pushes and pull requests across the [platform matrix
 
 | Category                        | Checks                                                                        |
 |---------------------------------|-------------------------------------------------------------------------------|
-| Package test source             | Ruff lint and formatting checks, release-tool tests, and source packaging     |
+| Package test source             | Ruff, Python release-tool tests, native build checks, and source packaging    |
 | clang-tidy / Linux and Windows  | Strict analysis of configured native and Python sources                       |
 | Compatibility Testing - Windows | x86/x86_64/ARM64 static/shared builds, CTest, ZIPs, and installers            |
 | Service Testing - Windows       | Daemon service options using each architecture's portable package             |

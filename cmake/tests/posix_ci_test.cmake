@@ -1,0 +1,136 @@
+cmake_minimum_required(VERSION 3.24)
+include("${CMAKE_CURRENT_LIST_DIR}/test_helpers.cmake")
+find_program(shell sh REQUIRED)
+lockd_test_prepare()
+set(root "${LOCKD_TEST_WORK}/checkout")
+set(bin "${root}/bin")
+set(script "${root}/scripts/release/test_posix.sh")
+set(trace "${root}/trace")
+file(MAKE_DIRECTORY "${bin}" "${root}/scripts/release")
+configure_file("${LOCKD_TEST_SOURCE}/scripts/release/test_posix.sh" "${script}" COPYONLY)
+
+# Record every external build/package boundary, including the non-CI guard's apt path.
+# A broken guard must fail this test without contacting repositories or changing the host.
+foreach(name IN ITEMS cmake ctest c++ apt-get dnf zypper pacman)
+    file(WRITE "${bin}/${name}" [=[#!/bin/sh
+command="$(basename "$0") $*"
+printf '%s\n' "$command" >> "$TRACE"
+if [ -n "${FAIL_MATCH:-}" ]; then
+    case "$command" in *"$FAIL_MATCH"*) exit 23 ;; esac
+fi
+]=])
+    file(CHMOD "${bin}/${name}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+            GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endforeach ()
+file(WRITE "${bin}/uname" "#!/bin/sh\nprintf '%s\\n' \"$TEST_ARCH\"\n")
+file(CHMOD "${bin}/uname" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+function(run_ci failure arch)
+    file(REMOVE "${trace}")
+    set(ENV{TRACE} "${trace}")
+    set(ENV{FAIL_MATCH} "${failure}")
+    set(ENV{TEST_ARCH} "${arch}")
+    set(ENV{TEST_BIN} "${bin}")
+    set(ENV{CXX} c++)
+    set(options "")
+    if (NOT failure STREQUAL "")
+        set(options FAILS)
+    endif ()
+    lockd_test_run(${options} RESULT status COMMAND "${shell}" -c
+            [=[PATH="$(cd "$TEST_BIN" && pwd):$PATH"; export PATH; . "$0"]=] "${script}")
+    file(STRINGS "${trace}" commands)
+    if (NOT failure STREQUAL "")
+        lockd_test_equal("${status}" "23")
+        list(GET commands -1 last)
+        lockd_test_contains("${last}" "${failure}")
+    endif ()
+    set(commands "${commands}" PARENT_SCOPE)
+endfunction()
+
+foreach(arch IN ITEMS x86_64 aarch64)
+    if (arch STREQUAL aarch64)
+        set(target arm64)
+    else ()
+        set(target x86_64)
+    endif ()
+    run_ci("" "${arch}")
+    set(build "output/obj/${target}/opt/shared")
+    set(count 0)
+    set(configuration "")
+    foreach(command IN LISTS commands)
+        if (command STREQUAL "cmake --build ${build} --parallel 2")
+            math(EXPR count "${count} + 1")
+        endif ()
+        string(FIND "${command}" "cmake --preset ${target}-opt-shared " position)
+        if (position EQUAL 0)
+            set(configuration "${command}")
+        endif ()
+    endforeach ()
+    lockd_test_equal("${count}" "2")
+    lockd_test_contains("${commands}"
+            "ctest --test-dir ${build} --output-on-failure --no-tests=error --parallel 2 -E ^lockd_clang_tidy_")
+    foreach(option IN ITEMS -DLOCKD_BUILD_PYTHON=OFF -DLOCKD_STATIC_RUNTIME=OFF
+            -DLOCKD_CLANG_TIDY_WARNINGS_AS_ERRORS=ON)
+        lockd_test_contains("${configuration}" "${option}")
+    endforeach ()
+    foreach(unexpected IN ITEMS /static -opt-static "--target clang_tidy")
+        lockd_test_absent("${commands}" "${unexpected}")
+    endforeach ()
+    if (target STREQUAL arm64)
+        lockd_test_absent("${commands}" x86_64)
+    endif ()
+endforeach ()
+foreach(failure IN ITEMS --preset "--parallel 2" "ctest ")
+    run_ci("${failure}" x86_64)
+endforeach ()
+
+unset(ENV{GITHUB_ACTIONS})
+lockd_test_run(FAILS OUTPUT output COMMAND "${CMAKE_COMMAND}" -E env
+        "PATH=${bin}:$ENV{PATH}" "${shell}" "${LOCKD_TEST_SOURCE}/scripts/release/install_linux_ci.sh" apt)
+lockd_test_contains("${output}" "only for disposable CI containers")
+
+configure_file("${LOCKD_TEST_SOURCE}/scripts/release/analyze_linux.sh" "${script}" COPYONLY)
+run_ci("" x86_64)
+list(LENGTH commands count)
+lockd_test_equal("${count}" "3")
+list(GET commands 0 configuration)
+foreach(option IN ITEMS -DLOCKD_CLANG_TIDY_EXECUTABLE=/usr/bin/clang-tidy-23
+        -DBUILD_TESTING=ON -DLOCKD_BUILD_PYTHON=ON -DLOCKD_CLANG_TIDY=OFF
+        -DLOCKD_CLANG_TIDY_WARNINGS_AS_ERRORS=ON)
+    lockd_test_contains("${configuration}" "${option}")
+endforeach ()
+list(GET commands 1 build)
+lockd_test_equal("${build}"
+        "cmake --build output/obj/x86_64/opt/shared/analysis --target clang_tidy_full")
+list(GET commands 2 tests)
+lockd_test_contains("${tests}" "-R ^lockd_clang_tidy_")
+foreach(failure IN ITEMS "cmake -S" "--target clang_tidy_full" "ctest ")
+    run_ci("${failure}" x86_64)
+endforeach ()
+
+set(ENV{GITHUB_ACTIONS} true)
+unset(ENV{FAIL_MATCH})
+file(REMOVE "${trace}")
+lockd_test_run(COMMAND "${CMAKE_COMMAND}" -E env "PATH=${bin}:$ENV{PATH}"
+        "${shell}" "${LOCKD_TEST_SOURCE}/scripts/release/install_linux_ci.sh" zypper)
+file(STRINGS "${trace}" commands)
+list(GET commands 0 refresh)
+lockd_test_equal("${refresh}" "zypper --non-interactive refresh")
+list(GET commands 1 install)
+foreach(package IN ITEMS libboost_log-devel libboost_program_options-devel
+        libboost_filesystem-devel libboost_thread-devel)
+    lockd_test_contains(" ${install} " " ${package} ")
+endforeach ()
+foreach(manager IN ITEMS dnf dnf-crb)
+    file(REMOVE "${trace}")
+    lockd_test_run(COMMAND "${CMAKE_COMMAND}" -E env "PATH=${bin}:$ENV{PATH}"
+            "${shell}" "${LOCKD_TEST_SOURCE}/scripts/release/install_linux_ci.sh" "${manager}")
+    file(READ "${trace}" commands)
+    lockd_test_contains("${commands}" ninja-build)
+    if (manager STREQUAL dnf-crb)
+        lockd_test_contains("${commands}" --enablerepo=crb)
+    else ()
+        lockd_test_absent("${commands}" --enablerepo=crb)
+    endif ()
+endforeach ()

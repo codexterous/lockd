@@ -1,18 +1,13 @@
 """Check push version assignment without creating remote tags or spending CI time."""
 
 import json
-import os
 import re
-import shutil
 import subprocess
-import tempfile
 import tomllib
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import build_version
-import output_layout
 import package
 
 
@@ -200,60 +195,3 @@ class BuildVersionTests(unittest.TestCase):
             self.assertEqual(
                 re.search(metadata['regex'], version + '\n')['value'], version
             )
-
-    @unittest.skipUnless(
-        os.environ.get('CMAKE_COMMAND') or shutil.which('cmake'),
-        'CMake is required for generated version checks',
-    )
-    def test_cmake_versions_match_python_and_reject_build_overflow(self) -> None:
-        """CMake generates all native components' constants from the same metadata."""
-        temporary_root: Path = (
-            package.ROOT
-            / f'output/obj/{output_layout.architecture()}/opt/shared/verifications'
-        )
-        temporary_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=temporary_root) as temporary:
-            root: Path = Path(temporary)
-            for name in ('lockd_version.cmake', 'lockd_build_version.hpp.in'):
-                shutil.copyfile(package.ROOT / 'cmake' / name, root / name)
-            driver: Path = root / 'check.cmake'
-            driver.write_text(
-                'cmake_minimum_required(VERSION 3.24)\n'
-                'include("${CMAKE_CURRENT_LIST_DIR}/lockd_version.cmake")\n'
-                'configure_file("${CMAKE_CURRENT_LIST_DIR}/lockd_build_version.hpp.in"\n'
-                ' "${CMAKE_CURRENT_LIST_DIR}/version.hpp" @ONLY)\n',
-                encoding='utf-8',
-            )
-            for version in (
-                '1.0.1.dev0',
-                '1.0.99',
-                '1.1.0',
-                '1.1.0',
-                '1.0.100',
-                '01.0.1',
-            ):
-                (root / 'version.txt').write_text(version + '\n', encoding='utf-8')
-                result = subprocess.run(
-                    [
-                        os.environ.get('CMAKE_COMMAND') or shutil.which('cmake'),
-                        '-P',
-                        str(driver),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if version in ('1.0.100', '01.0.1'):
-                    self.assertNotEqual(result.returncode, 0)
-                else:
-                    self.assertEqual(
-                        result.returncode, 0, result.stdout + result.stderr
-                    )
-                    header: str = (root / 'version.hpp').read_text()
-                    native_version: str = version.replace('.dev0', '-dev')
-                    self.assertIn(
-                        f'#define LOCKD_VERSION_STRING "{native_version}"', header
-                    )
-                    self.assertIn(
-                        f'#define BUILD_NUMBER {version.split(".")[2]}\n', header
-                    )

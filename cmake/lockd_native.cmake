@@ -79,6 +79,7 @@ if (BUILD_TESTING)
     # Enable CTest without adding unused CDash dashboard targets and IDE run configurations.
     enable_testing()
     lockd_add_component(utility/lockd_test)
+    include("${CMAKE_CURRENT_LIST_DIR}/lockd_build_tests.cmake")
 endif ()
 
 ################################################################################

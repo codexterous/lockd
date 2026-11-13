@@ -12,6 +12,8 @@ add_executable(lockd_test
         source/output_test.cpp
         source/daemon_fixture.cpp
         source/scripted_peer.cpp
+        source/source_path_test.cpp
+        source/source_path_fixture.cpp
         source/dll_test.cpp
         source/dll_c_header_test.c
         source/test_thread.cpp
@@ -20,6 +22,7 @@ add_executable(lockd_test
         source/launcher.cpp
         source/version.cpp)
 set_lockd_target_options(lockd_test utility/lockd_test)
+target_include_directories(lockd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 if (WIN32)
     target_sources(lockd_test PRIVATE source/service_test.cpp)
 endif ()
@@ -47,6 +50,19 @@ set(LOCKD_INSTALL_TESTDIR "${CMAKE_INSTALL_LIBEXECDIR}/lockd" CACHE STRING
 install(TARGETS lockd_test RUNTIME DESTINATION ${LOCKD_INSTALL_TESTDIR}
         COMPONENT tests EXCLUDE_FROM_ALL)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT LOCKD_STATIC_RUNTIME)
+    # Fault injection stays at the syscall boundary, in a child process only.
+    # LD_PRELOAD cannot intercept the libc calls of a fully static daemon.
+    add_library(lockd_startup_failures MODULE source/startup_failures.c)
+    set_lockd_target_options(lockd_startup_failures utility/lockd_test)
+    set_target_properties(lockd_startup_failures PROPERTIES PREFIX "")
+    add_dependencies(lockd_test lockd_startup_failures)
+    target_compile_definitions(lockd_test PRIVATE
+            LOCKD_STARTUP_FAILURES_NAME="$<TARGET_FILE_NAME:lockd_startup_failures>")
+    install(TARGETS lockd_startup_failures LIBRARY DESTINATION ${LOCKD_INSTALL_TESTDIR}
+            COMPONENT tests EXCLUDE_FROM_ALL)
+endif ()
+
 ################################################################################
 # CTEST
 ################################################################################
@@ -66,6 +82,24 @@ if (WIN32)
             COMMAND lockd_test --run_test=service_logging --report_level=short)
     set_tests_properties(lockd_service_logging PROPERTIES
             TIMEOUT 30 WORKING_DIRECTORY "${PROJECT_BINARY_DIR}")
+endif ()
+
+if (UNIX)
+    if (BUILD_SHARED_LIBS)
+        set(Lockd_TEST_LIBRARY_PREFIX "${CMAKE_SHARED_LIBRARY_PREFIX}")
+        set(Lockd_TEST_LIBRARY_SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    else ()
+        set(Lockd_TEST_LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
+        set(Lockd_TEST_LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endif ()
+
+    # Check the actual targets' linker filenames in both linkage modes.
+    add_test(NAME lockd_library_names COMMAND "${CMAKE_COMMAND}"
+            "-DLOCKD_CLIENT_NAME=$<TARGET_LINKER_FILE_NAME:liblockd>"
+            "-DLOCKD_C_NAME=$<TARGET_LINKER_FILE_NAME:liblockd_dll>"
+            "-DLOCKD_EXPECTED_CLIENT=${Lockd_TEST_LIBRARY_PREFIX}lockd${Lockd_TEST_LIBRARY_SUFFIX}"
+            "-DLOCKD_EXPECTED_C=${Lockd_TEST_LIBRARY_PREFIX}lockd_dll${Lockd_TEST_LIBRARY_SUFFIX}"
+            -P "${PROJECT_SOURCE_DIR}/cmake/tests/library_names_test.cmake")
 endif ()
 
 if (BUILD_SHARED_LIBS)

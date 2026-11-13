@@ -10,7 +10,7 @@ On Linux or FreeBSD, a foreground development run needs neither root nor a dedic
 account:
 
 ```sh
-./output/x86_64/opt/shared/lockd --no-fork --no-drop
+lockd --no-fork --no-drop
 ```
 
 On Windows, run `lockd.exe` for console operation. For a managed service, use the [Windows installer

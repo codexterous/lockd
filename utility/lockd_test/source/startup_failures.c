@@ -11,7 +11,7 @@ static int fail_operation(const char* const operation)
 {
     const char* const requested = getenv("LOCKD_TEST_FAIL");
     if (requested && strcmp(requested, operation) == 0) {
-        errno = EPERM;
+        errno = EPERM; // NOLINT(misc-include-cleaner): POSIX errno.h exports this OS error constant.
         return -1;
     }
     return 0;
@@ -25,20 +25,20 @@ int initgroups(const char* const user, const gid_t group)
     return fail_operation("initgroups");
 }
 
-int setgid(const gid_t group)
+int setgid(const gid_t gid)
 {
-    (void)group;
+    (void)gid;
     return fail_operation("setgid");
 }
 
-int setuid(const uid_t user)
+int setuid(const uid_t uid)
 {
-    (void)user;
+    (void)uid;
     return fail_operation("setuid");
 }
 
 pid_t fork(void)
 {
-    errno = EAGAIN;
+    errno = EAGAIN; // NOLINT(misc-include-cleaner): POSIX errno.h exports this OS error constant.
     return -1;
 }

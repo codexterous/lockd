@@ -8,6 +8,10 @@ add_library(liblockd
 add_library(lockd::client ALIAS liblockd)
 set_lockd_target_options(liblockd lib/liblockd)
 set_target_properties(liblockd PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME client)
+if (UNIX)
+    # CMake supplies the lib prefix for both shared libraries and static archives.
+    set_target_properties(liblockd PROPERTIES OUTPUT_NAME lockd)
+endif ()
 if (BUILD_SHARED_LIBS)
     set_target_properties(liblockd PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 1)
 endif ()

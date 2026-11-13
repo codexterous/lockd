@@ -287,16 +287,16 @@ Add `--plan-only` to the resume command to validate and preview without running 
 
 ### Running clients yourself
 
-Build `lockd` and `lockd_test` using [BUILDING.md](BUILDING.md). Start the daemon on a private
-interface, then run a generator on each client machine:
+Install `lockd` and build `lockd_test` using [BUILDING.md](BUILDING.md). Start the daemon on a
+private interface, then run a generator on each client machine:
 
 ```sh
-output/x86_64/opt/shared/lockd --no-fork --no-drop -i 10.20.0.10 -p 7198 -t 8 -l info
+lockd --no-fork --no-drop -i 10.20.0.10 -p 7198 -t 8 -l info
 
 utility/lockd_test/output/x86_64/opt/shared/lockd_test -- -B \
   -i 10.20.0.10 -p 7198 -t 16 --connections=100 --engine=sync \
   --duration=120 --warmup=30 --hold-ms=250 --require-all-clients \
-  --results=output/obj/x86_64/opt/shared/client-a.csv
+  --results=client-a.csv
 ```
 
 Benchmark options follow `--`; see `lockd_test -- -B --help`. Use a different CSV per generator.
