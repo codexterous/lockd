@@ -226,27 +226,30 @@ set(groups "wheels_linux|Python - Linux|release_python|wheels"
         "freebsd|Compatibility Testing - FreeBSD|freebsd|tests"
         "windows_services|Service Testing - Windows|windows_services|tests")
 
-# Both callers share the FreeBSD release groups and their architecture jobs. Only
-# 15.1 expands beyond amd64; the older release retains its existing architecture.
-require_set("${jobs_freebsd_architectures}" tests)
+# The sidebar displays the leaf job's name beneath one FreeBSD group. Include both
+# release and architecture there, and keep the four supported combinations explicit.
+set(freebsd_matrix [=[        include:
+          - release: '14.4'
+            arch: amd64
+          - release: '15.1'
+            arch: amd64
+          - release: '15.1'
+            arch: aarch64
+          - release: '15.1'
+            arch: riscv64
+    steps:
+]=])
 foreach(value IN ITEMS
-        [=[    name: FreeBSD ${{ matrix.release }}]=]
-        "        release: ['14.4', '15.1']"
-        "    uses: ./.github/workflows/freebsd_architectures.yml\n"
-        [=[      release: ${{ matrix.release }}]=]
-        [=[      source_version: ${{ inputs.source_version }}]=]
-        [=[      reuse_checks: ${{ inputs.reuse_checks }}]=])
+        [=[    name: ${{ matrix.release }} / ${{ matrix.arch }}]=]
+        "    runs-on: ubuntu-24.04\n"
+        "${freebsd_matrix}"
+        [=[          release: ${{ matrix.release }}]=]
+        [=[          arch: ${{ matrix.arch }}]=]
+        [=[          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} / ${{ matrix.arch }}]=]
+        [=[          name: freebsd_${{ matrix.release }}_${{ matrix.arch }}_diagnostics]=])
     lockd_test_contains("${block_freebsd_tests}" "${value}")
 endforeach ()
-foreach(value IN ITEMS
-        [=[    name: ${{ matrix.arch }}]=]
-        [=[        arch: ${{ fromJSON(inputs.release == '15.1' && '["amd64","aarch64","riscv64"]' || '["amd64"]') }}]=]
-        [=[          release: ${{ inputs.release }}]=]
-        [=[          arch: ${{ matrix.arch }}]=]
-        [=[          job: Compatibility Testing - FreeBSD / FreeBSD ${{ inputs.release }} / ${{ matrix.arch }}]=]
-        [=[          name: freebsd_${{ inputs.release }}_${{ matrix.arch }}_diagnostics]=])
-    lockd_test_contains("${block_freebsd_architectures_tests}" "${value}")
-endforeach ()
+lockd_test_absent("${block_freebsd_tests}" "\n    uses:")
 foreach(caller IN ITEMS compatibility release)
     foreach(group IN LISTS groups)
         string(REPLACE "|" ";" fields "${group}")
@@ -340,10 +343,6 @@ foreach(part IN LISTS parts)
     set(worker "${CMAKE_MATCH_2}")
     list(GET jobs_${worker} 0 job)
     set(block "${block_${worker}_${job}}")
-    if (worker STREQUAL freebsd)
-        # The release grouping forwards reuse to the actual VM jobs.
-        set(block "${block_freebsd_architectures_tests}")
-    endif ()
     lockd_test_contains("${block}" "uses: ./.github/actions/reuse_compatibility")
     string(REPLACE ";" "\\;" block "${block}")
     string(REPLACE "      - name: " ";" steps "${block}")

@@ -16,15 +16,81 @@ permissions:
   contents: read
   actions: read
 
+env:
+  # Source artifacts are staged on the Ubuntu host; each guest selects its own build architecture.
+  OUTPUT_ARCH: x86_64
+
 jobs:
   tests:
-    name: FreeBSD ${{ matrix.release }}
+    name: ${{ matrix.release }} / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+
+    # Emulated guests need more time to compile the native test suite.
+    timeout-minutes: ${{ matrix.arch == 'amd64' && 90 || 180 }}
     strategy:
       fail-fast: false
       matrix:
-        release: ['14.4', '15.1']
-    uses: ./.github/workflows/freebsd_architectures.yml
-    with:
-      release: ${{ matrix.release }}
-      source_version: ${{ inputs.source_version }}
-      reuse_checks: ${{ inputs.reuse_checks }}
+        include:
+          - release: '14.4'
+            arch: amd64
+          - release: '15.1'
+            arch: amd64
+          - release: '15.1'
+            arch: aarch64
+          - release: '15.1'
+            arch: riscv64
+    steps:
+      - name: Check out compatibility scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Reuse successful compatibility result
+        id: reuse
+        if: inputs.reuse_checks
+        uses: ./.github/actions/reuse_compatibility
+        with:
+          version: ${{ inputs.source_version }}
+          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} / ${{ matrix.arch }}
+      - name: Download release source
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release_source
+          path: output/${{ env.OUTPUT_ARCH }}/opt/static
+      - name: Build and test in a FreeBSD VM
+        if: steps.reuse.outputs.reused != 'true'
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1
+        env:
+          SOURCE_VERSION: ${{ inputs.source_version }}
+        with:
+          release: ${{ matrix.release }}
+          arch: ${{ matrix.arch }}
+          envs: SOURCE_VERSION
+          prepare: |
+            export DEVELOPER=yes
+            pkg install -y cmake-core ninja boost-libs
+            pw useradd lockd_ci -m -s /bin/sh
+          run: |
+            set -eu
+            export DEVELOPER=yes
+
+            # CPU emulation slows compiler fixtures. Run tests alone so compilation
+            # does not compete with timed loopback tests for CPU time.
+            export LOCKD_BUILD_TEST_TIMEOUT_SCALE=${{ matrix.arch == 'amd64' && 1 || 6 }}
+            export CTEST_PARALLEL_LEVEL=${{ matrix.arch == 'amd64' && 2 || 1 }}
+            if [ -n "$SOURCE_VERSION" ]; then
+              mkdir -p output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+              tar -xzf "output/${{ env.OUTPUT_ARCH }}/opt/static/lockd-$SOURCE_VERSION.tar.gz" -C output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source
+              cd "output/obj/${{ env.OUTPUT_ARCH }}/opt/shared/source/lockd-$SOURCE_VERSION"
+            fi
+            chown -R lockd_ci .
+            su lockd_ci -c 'sh scripts/release/test_posix.sh'
+      - name: Preserve FreeBSD configuration and test diagnostics
+        if: steps.reuse.outputs.reused != 'true' && (failure())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: freebsd_${{ matrix.release }}_${{ matrix.arch }}_diagnostics
+          path: |
+            output/**/CMakeConfigureLog.yaml
+            output/**/Testing/Temporary/
+          if-no-files-found: ignore
