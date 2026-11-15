@@ -77,6 +77,86 @@
       }
     },
     {
+      "name": "riscv64-dbg-static",
+      "inherits": "native",
+      "architecture": {
+        "value": "riscv64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/riscv64/dbg/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "riscv64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-dbg-shared",
+      "inherits": "native",
+      "architecture": {
+        "value": "riscv64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/output/obj/riscv64/dbg/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LOCKD_TARGET_ARCH": "riscv64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-opt-shared",
+      "inherits": "native",
+      "binaryDir": "${sourceDir}/output/obj/riscv64/opt/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "riscv64",
+        "BUILD_SHARED_LIBS": true,
+        "LOCKD_STATIC_RUNTIME": false
+      },
+      "architecture": {
+        "value": "riscv64",
+        "strategy": "external"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-opt-static",
+      "inherits": "native",
+      "binaryDir": "${sourceDir}/output/obj/riscv64/opt/static",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LOCKD_TARGET_ARCH": "riscv64",
+        "BUILD_SHARED_LIBS": false,
+        "LOCKD_STATIC_RUNTIME": true
+      },
+      "architecture": {
+        "value": "riscv64",
+        "strategy": "external"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
       "name": "x86-dbg-static",
       "inherits": "native",
       "architecture": {
@@ -280,6 +360,54 @@
       "configurePreset": "arm64-dbg-shared",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "riscv64-opt-static",
+      "configurePreset": "riscv64-opt-static",
+      "output": {
+        "outputOnFailure": true
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-opt-shared",
+      "configurePreset": "riscv64-opt-shared",
+      "output": {
+        "outputOnFailure": true
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-dbg-static",
+      "configurePreset": "riscv64-dbg-static",
+      "output": {
+        "outputOnFailure": true
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
+      }
+    },
+    {
+      "name": "riscv64-dbg-shared",
+      "configurePreset": "riscv64-dbg-shared",
+      "output": {
+        "outputOnFailure": true
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "FreeBSD"
       }
     }
   ]

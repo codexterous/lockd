@@ -16,7 +16,7 @@ class OutputLayoutTests(unittest.TestCase):
     """Keep interpreter ABIs separate without replacing the packaging backend."""
 
     def test_architecture_matches_process_and_normalizes_aliases(self) -> None:
-        """A 32-bit interpreter needs x86 outputs even when Windows reports AMD64."""
+        """Keep interpreter bitness and FreeBSD's machine-family aliases distinct."""
         for machine, size, expected in (
             ('AMD64', 8, 'x86_64'),
             ('AMD64', 4, 'x86'),
@@ -24,11 +24,15 @@ class OutputLayoutTests(unittest.TestCase):
             ('i686', 4, 'x86'),
             ('aarch64', 8, 'arm64'),
             ('ARM64', 8, 'arm64'),
+            ('riscv', 8, 'riscv64'),
+            ('riscv64', 8, 'riscv64'),
         ):
             with self.subTest(machine=machine, size=size):
                 self.assertEqual(output_layout.architecture(machine, size), expected)
         with self.assertRaises(ValueError):
             output_layout.architecture('aarch64', 4)
+        with self.assertRaises(ValueError):
+            output_layout.architecture('riscv', 4)
         with self.assertRaises(ValueError):
             output_layout.architecture('unknown', 8)
 
@@ -47,7 +51,7 @@ class OutputLayoutTests(unittest.TestCase):
         self,
     ) -> None:
         """Release builds retain the backend's ABI expansion and native arch names."""
-        for arch in output_layout.ARCHITECTURES:
+        for arch in package.WINDOWS_WHEEL_PLATFORMS:
             with (
                 self.subTest(arch=arch),
                 patch.object(package.output_layout, 'architecture', return_value=arch),
@@ -66,6 +70,28 @@ class OutputLayoutTests(unittest.TestCase):
                     details['wheel_directory'],
                     f'lib/pylockd/output/{arch}/opt/static',
                 )
+
+    def test_freebsd_riscv_metadata_uses_native_output_paths(self) -> None:
+        """FreeBSD's riscv machine name must not select x86_64 wheel directories."""
+        with (
+            patch.object(package.sys, 'platform', 'freebsd15'),
+            patch.object(
+                package.sysconfig, 'get_platform', return_value='freebsd-15.1-riscv'
+            ),
+            patch.object(output_layout.platform, 'machine', return_value='riscv'),
+            patch.object(output_layout.struct, 'calcsize', return_value=8),
+        ):
+            details = package.interpreter()
+            paths: dict[str, Path] = output_layout.directories(package.ROOT, 'riscv64')
+        self.assertEqual(details['architecture'], 'riscv64')
+        self.assertEqual(
+            details['wheel_directory'], 'lib/pylockd/output/riscv64/opt/static'
+        )
+        self.assertEqual(paths['build'], package.ROOT / 'output/obj/riscv64/opt/shared')
+        self.assertEqual(
+            paths['dependencies'],
+            package.ROOT / 'output/obj/riscv64/opt/shared/dependencies',
+        )
 
     def test_linux_builder_keeps_raw_wheels_and_backend_caches_separate(self) -> None:
         """Only build inputs use the common work tree; the backend owns its ABI tree."""

@@ -16,13 +16,18 @@ for setup and [TESTING.md](TESTING.md#what-ci-runs) for test coverage.
 | openSUSE Leap    | 16.0                    | Distribution container                                                |
 | Arch Linux       | Current rolling release | Distribution container                                                |
 | Raspberry Pi OS  | Trixie (64-bit Lite)    | Official image user space on an ARM64 runner                          |
-| FreeBSD          | 14.4, 15.1              | amd64 FreeBSD VMs                                                     |
+| FreeBSD          | 14.4                    | amd64 FreeBSD VM                                                      |
+| FreeBSD          | 15.1                    | amd64, aarch64, and riscv64 FreeBSD VMs                               |
 | Windows[^cygwin] | Server 2022, Windows 11 | x86/x86_64 on Server 2022; ARM64 on Windows 11; Release static/shared |
 
 [^cygwin]: Cygwin is experimental and unsupported; use native Windows builds instead.
 
 Linux and FreeBSD use shared Release builds. Windows tests static and shared Release builds for x86,
 x86_64, and ARM64, including the daemon, client libraries, DLL, and native test suite.
+
+FreeBSD compatibility jobs build and test the daemon, C++ client, C wrapper, and native test suite.
+They do not build Python bindings. Compatibility and Release use the same FreeBSD jobs, grouped by
+release and architecture.
 
 Windows reserves each daemon's TCP port across all local addresses and both IP families. Separate
 daemons must use different ports, even when listening on different local IPs. This prevents
@@ -36,9 +41,9 @@ Free-threaded Python and FreeBSD wheels aren't included.
 ## Coverage limits
 
 Linux containers test distribution user space on the runner's kernel. Raspberry Pi OS checks run its
-64-bit user space on an ARM64 runner, not Pi hardware or its kernel. FreeBSD runs in VMs. Windows
-native CI uses Server 2022 for x86/x86_64 and Windows 11 for ARM64. Not every Windows release is
-tested.
+64-bit user space on an ARM64 runner, not Pi hardware or its kernel. FreeBSD runs in VMs, with CPU
+emulation for aarch64 and riscv64. Windows native CI uses Server 2022 for x86/x86_64 and Windows 11
+for ARM64. Not every Windows release is tested.
 
 The matrix targets the oldest and newest normally supported distribution releases that meet the
 build requirements: CMake 3.24+, Boost 1.82+, and a C++17 compiler. Rolling distributions have one
@@ -51,6 +56,8 @@ tests.
 lockd officially supports CPython 3.11 through 3.15 on x86, x86_64, and ARM64 running across the
 supported system compatibility matrix. Python 3.10 reached EOL on October 1st, 2026. Older or newer
 versions may still build and pass tests; lockd was originally developed for CPython 2.7.
+
+RISC-V Python bindings are not covered by the compatibility matrix.
 
 ### Portable Linux wheels
 

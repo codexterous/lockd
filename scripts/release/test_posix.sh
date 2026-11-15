@@ -13,7 +13,8 @@ cmake -DLOCKD_BUILD_JOBS="$build_jobs" -P cmake/lockd_report_build_cpus.cmake
 case "$(uname -m)" in
     x86_64|amd64) arch=x86_64 ;;
     aarch64|arm64) arch=arm64 ;;
-    *) echo 'Native CI requires x86_64 or arm64.' >&2; exit 1 ;;
+    riscv64|riscv) arch=riscv64 ;;
+    *) echo 'Native CI requires x86_64, arm64, or riscv64.' >&2; exit 1 ;;
 esac
 
 # Shared Release builds are standard on Linux and FreeBSD. Exercise an unchanged
@@ -22,6 +23,7 @@ preset="$arch-opt-shared"
 build="output/obj/$arch/opt/shared"
 cmake --preset "$preset" -DLOCKD_STATIC_RUNTIME=OFF \
     -DLOCKD_BUILD_PYTHON=OFF -DLOCKD_CLANG_TIDY=OFF \
+    -DLOCKD_BUILD_TEST_TIMEOUT_SCALE="${LOCKD_BUILD_TEST_TIMEOUT_SCALE:-1}" \
     -DLOCKD_CLANG_TIDY_WARNINGS_AS_ERRORS=ON
 if [ "${1:-}" = --daemon-only ]; then
     cmake --build "$build" --target lockd --parallel "$build_jobs"
@@ -29,4 +31,5 @@ if [ "${1:-}" = --daemon-only ]; then
 fi
 cmake --build "$build" --parallel "$build_jobs"
 cmake --build "$build" --parallel "$build_jobs"
-ctest --test-dir "$build" --output-on-failure --no-tests=error --parallel 2 -E '^lockd_clang_tidy_'
+ctest --test-dir "$build" --output-on-failure --no-tests=error \
+    --parallel "${CTEST_PARALLEL_LEVEL:-2}" -E '^lockd_clang_tidy_'

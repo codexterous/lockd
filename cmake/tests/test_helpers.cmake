@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
+if (NOT DEFINED LOCKD_TEST_COMMAND_TIMEOUT)
+    set(LOCKD_TEST_COMMAND_TIMEOUT 120)
+endif ()
+
 function(lockd_test_prepare)
     if (NOT IS_ABSOLUTE "${LOCKD_TEST_ROOT}" OR NOT IS_ABSOLUTE "${LOCKD_TEST_WORK}")
         message(FATAL_ERROR "Fixture root and work directories must be explicit absolute paths")
@@ -21,7 +25,7 @@ function(lockd_test_run)
         set(test_DIRECTORY "${LOCKD_TEST_WORK}")
     endif ()
     if (NOT test_TIMEOUT)
-        set(test_TIMEOUT 120)
+        set(test_TIMEOUT "${LOCKD_TEST_COMMAND_TIMEOUT}")
     endif ()
     execute_process(COMMAND ${test_COMMAND}
             WORKING_DIRECTORY "${test_DIRECTORY}" TIMEOUT "${test_TIMEOUT}"

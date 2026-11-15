@@ -8,8 +8,18 @@ string(SUBSTRING "${Lockd_BUILD_TEST_ID}" 0 12 Lockd_BUILD_TEST_ID)
 set(Lockd_BUILD_TEST_ROOT
         "${Lockd_HOST_BUILD_DIR}/verifications/build/${Lockd_BUILD_TEST_ID}")
 
+# Compiler fixtures run much more slowly under CPU emulation. Keep both the
+# subprocess and whole-test limits finite, with native builds using the defaults.
+set(LOCKD_BUILD_TEST_TIMEOUT_SCALE 1 CACHE STRING "Build-test time-limit multiplier, from 1 to 60")
+if (NOT LOCKD_BUILD_TEST_TIMEOUT_SCALE MATCHES "^[1-9][0-9]?$" OR
+        LOCKD_BUILD_TEST_TIMEOUT_SCALE GREATER 60)
+    message(FATAL_ERROR "LOCKD_BUILD_TEST_TIMEOUT_SCALE must be an integer from 1 to 60")
+endif ()
+math(EXPR Lockd_BUILD_TEST_TIMEOUT "300 * ${LOCKD_BUILD_TEST_TIMEOUT_SCALE}")
+math(EXPR Lockd_BUILD_TEST_COMMAND_TIMEOUT "120 * ${LOCKD_BUILD_TEST_TIMEOUT_SCALE}")
+
 function(lockd_set_build_test_properties name)
-    set_tests_properties("${name}" PROPERTIES TIMEOUT 300 LABELS native_build)
+    set_tests_properties("${name}" PROPERTIES TIMEOUT "${Lockd_BUILD_TEST_TIMEOUT}" LABELS native_build)
     if (WIN32)
         # CTest is an intermediate process between pwsh and Windows PowerShell.
         # Let Windows PowerShell construct its own module path, instead of loading
@@ -34,6 +44,7 @@ function(lockd_add_build_test name script)
             "-DLOCKD_TEST_SOURCE=${Lockd_BUILD_TEST_SOURCE}"
             "-DLOCKD_TEST_ROOT=${Lockd_BUILD_TEST_ROOT}"
             "-DLOCKD_TEST_WORK=${Lockd_BUILD_TEST_ROOT}/${name}"
+            "-DLOCKD_TEST_COMMAND_TIMEOUT=${Lockd_BUILD_TEST_COMMAND_TIMEOUT}"
             "-DLOCKD_TEST_GENERATOR=${CMAKE_GENERATOR}"
             "-DLOCKD_TEST_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
             "-DLOCKD_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
@@ -93,6 +104,7 @@ if (WIN32)
                     "-DLOCKD_TEST_SOURCE=${Lockd_BUILD_TEST_SOURCE}"
                     "-DLOCKD_TEST_ROOT=${Lockd_BUILD_TEST_ROOT}"
                     "-DLOCKD_TEST_WORK=${Lockd_BUILD_TEST_ROOT}/${name}"
+                    "-DLOCKD_TEST_COMMAND_TIMEOUT=${Lockd_BUILD_TEST_COMMAND_TIMEOUT}"
                     "-DLOCKD_TEST_POWERSHELL=${Lockd_TEST_POWERSHELL}"
                     "-DLOCKD_TEST_SCRIPT=${script}"
                     -P "${Lockd_BUILD_TEST_SOURCE}/cmake/tests/windows_test.cmake")
@@ -111,6 +123,7 @@ if (WIN32)
                         "-DLOCKD_TEST_SOURCE=${Lockd_BUILD_TEST_SOURCE}"
                         "-DLOCKD_TEST_ROOT=${Lockd_BUILD_TEST_ROOT}"
                         "-DLOCKD_TEST_WORK=${Lockd_BUILD_TEST_ROOT}/python_package_windows"
+                        "-DLOCKD_TEST_COMMAND_TIMEOUT=${Lockd_BUILD_TEST_COMMAND_TIMEOUT}"
                         "-DLOCKD_TEST_PYTHON=${Python3_EXECUTABLE}"
                         -P "${Lockd_BUILD_TEST_SOURCE}/cmake/tests/python_package_windows_test.cmake")
                 lockd_set_build_test_properties(lockd_python_package_windows_x64)

@@ -9,6 +9,10 @@ elseif (Lockd_HOST_PROCESSOR MATCHES "^(amd64|x86_64|x64)$")
     set(Lockd_HOST_ARCH x86_64)
 elseif (Lockd_HOST_PROCESSOR MATCHES "^(x86|i[3-6]86)$")
     set(Lockd_HOST_ARCH x86)
+elseif (Lockd_HOST_PROCESSOR STREQUAL "riscv64"
+        OR (CMAKE_HOST_SYSTEM_NAME STREQUAL "FreeBSD" AND Lockd_HOST_PROCESSOR STREQUAL "riscv"))
+    # FreeBSD reports its RISC-V64 machine family as "riscv" in uname -m.
+    set(Lockd_HOST_ARCH riscv64)
 else ()
     message(FATAL_ERROR "Unsupported build host architecture: ${Lockd_HOST_PROCESSOR}")
 endif ()

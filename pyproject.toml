@@ -77,6 +77,7 @@ inclusion-mode = "explicit"
 include = [
     "pyproject.toml", "CMakeLists.txt", "CMakePresets.json", "README.md", "vcpkg.json",
     "cmake/**", "include/**", "source/**",
+    "scripts/release/output_layout.py",
     "lib/*/CMakeLists.txt", "lib/*/include/**", "lib/*/source/**",
     "BENCHMARKING.md", "BUILDING.md", "COMPATIBILITY.md", "CONTRIBUTING.md", "DLL.md", "FREEBSD.md", "LICENSE.md",
     "PROTOCOL.md", "PYTHON.md", "RUNNING.md", "SECURITY.md", "TESTING.md", "USAGE.md", "WINDOWS.md",

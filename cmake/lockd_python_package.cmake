@@ -25,8 +25,10 @@ elseif (LOCKD_PACKAGE_PYTHON)
 endif ()
 find_package(Python3 3.11...<3.16 REQUIRED COMPONENTS Interpreter)
 
-execute_process(COMMAND "${Python3_EXECUTABLE}" -c
-        "import platform, struct; print('arm64' if platform.machine().lower() in ('arm64', 'aarch64') else ('x86' if struct.calcsize('P') == 4 else 'x86_64'))"
+# Probe the interpreter without leaving bytecode beside the release helpers.
+execute_process(COMMAND "${Python3_EXECUTABLE}" -B -c
+        "import sys; sys.path.insert(0, sys.argv[1]); from output_layout import architecture; print(architecture())"
+        "${Lockd_SOURCE_DIR}/scripts/release"
         OUTPUT_VARIABLE Lockd_PYTHON_ARCH OUTPUT_STRIP_TRAILING_WHITESPACE
         COMMAND_ERROR_IS_FATAL ANY)
 

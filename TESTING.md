@@ -55,6 +55,15 @@ checks use Windows PowerShell and isolated fixtures for installer and signing be
 install services. Python wheel configuration checks additionally need a supported x64 Python
 interpreter on Windows.
 
+Compiler fixtures have a 120-second default command limit and a 300-second test limit. For slow
+build environments, configure with `-DLOCKD_BUILD_TEST_TIMEOUT_SCALE=<integer>` (1 to 60) to
+multiply those limits. FreeBSD CI uses 6 under CPU emulation, allowing 720 seconds per fixture
+command and 1,800 seconds per build test. Native builds default to 1. This setting does not change
+the daemon and library runtime tests or their assertions.
+
+The POSIX CI script honors `CTEST_PARALLEL_LEVEL`, defaulting to two concurrent tests. Emulated
+FreeBSD guests use one so compiler fixtures don't compete with timed loopback tests for CPU time.
+
 To run the build checks independently of the daemon and Boost dependencies, configure their entry
 point with the same compiler environment used for a native build:
 
@@ -136,7 +145,7 @@ Compatibility checks run on pushes and pull requests across the [platform matrix
 | Python - Linux                  | Build, repair, and test manylinux wheels for each Python ABI and architecture |
 | Python - Windows                | Build and test each Python wheel against packaged Windows binaries            |
 | Compatibility Testing - Linux   | Optimized shared builds, unchanged rebuilds, CTest, wheel tests               |
-| Compatibility Testing - FreeBSD | Optimized shared builds, unchanged rebuilds, CTest in two VMs                 |
+| Compatibility Testing - FreeBSD | Optimized shared builds, unchanged rebuilds, CTest by release and architecture |
 
 Release reuses successful checks and tested artifacts for the same commit and version. Missing or
 expired results are rebuilt and tested before publication. After release assembly passes, Release

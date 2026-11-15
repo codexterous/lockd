@@ -8,7 +8,7 @@ import struct
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHITECTURES = ('x86', 'x86_64', 'arm64')
+ARCHITECTURES = ('x86', 'x86_64', 'arm64', 'riscv64')
 
 
 def architecture(machine: str | None = None, pointer_bytes: int | None = None) -> str:
@@ -19,6 +19,10 @@ def architecture(machine: str | None = None, pointer_bytes: int | None = None) -
         if pointer_bytes != 8:
             raise ValueError("Only 64-bit ARM builds are supported")
         return 'arm64'
+    if machine in ('riscv', 'riscv64'):
+        if pointer_bytes != 8:
+            raise ValueError("Only 64-bit RISC-V builds are supported")
+        return 'riscv64'
     if machine in ('amd64', 'x86_64', 'x64', 'x86', 'i386', 'i486', 'i586', 'i686'):
         return 'x86' if pointer_bytes == 4 else 'x86_64'
     raise ValueError(f"Unsupported architecture: {machine}")
@@ -33,7 +37,9 @@ def directories(
 ) -> dict[str, Path]:
     """Keep component outputs separate while sharing host-tool caches."""
     if arch not in ARCHITECTURES or profile not in ('dbg', 'opt'):
-        raise ValueError("Choose x86, x86_64 or arm64 and a dbg or opt profile")
+        raise ValueError(
+            "Choose x86, x86_64, arm64 or riscv64 and a dbg or opt profile"
+        )
     if linkage not in ('static', 'shared'):
         raise ValueError("Choose static or shared linkage")
     component_path = Path(component)

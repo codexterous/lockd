@@ -18,11 +18,11 @@ cmake --build output/obj/x86_64/opt/shared --parallel 2
 ctest --preset x86_64-opt-shared --output-on-failure
 ```
 
-Use `arm64-opt-shared` on ARM64. Change the worker count (`--parallel`) to suit your machine. For
-the `x86_64-opt-shared` preset, the daemon is written to `output/x86_64/opt/shared/lockd` (with
-`.exe` on Windows); the tests are under `utility/lockd_test/output/` with the same profile path. See
-[Presets](#presets) for more information on presets and what output paths look like for a given
-preset.
+Use `arm64-opt-shared` on ARM64 or `riscv64-opt-shared` on FreeBSD RISC-V64. Change the worker count
+(`--parallel`) to suit your machine. For the `x86_64-opt-shared` preset, the daemon is written to
+`output/x86_64/opt/shared/lockd` (with `.exe` on Windows); the tests are under
+`utility/lockd_test/output/` with the same profile path. See [Presets](#presets) for more
+information on presets and what output paths look like for a given preset.
 
 See [RUNNING.md](RUNNING.md) to start the daemon, [TESTING.md](TESTING.md) for more test options,
 and [PYTHON.md](PYTHON.md) to build the Python binding.
@@ -31,14 +31,14 @@ and [PYTHON.md](PYTHON.md) to build the Python binding.
 
 Preset names follow `<arch>-<profile>-<linkage>`:
 
-- Architecture: `x86`, `x86_64`, or `arm64`.
+- Architecture: `x86`, `x86_64`, `arm64`, or `riscv64` (FreeBSD only).
 - Profile: `dbg` for Debug or `opt` for Release.
 - Linkage: `shared` or `static`.
 
-All three architectures have Debug and Release presets for both linkages, with matching CTest
-presets. Run `cmake --list-presets` for configure presets or `ctest --list-presets` for test
-presets. The compiler and dependencies must match the selected architecture; 32-bit Linux builds
-need 32-bit dependencies too.
+Each architecture has Debug and Release presets for both linkages, with matching CTest presets. Run
+`cmake --list-presets` for configure presets or `ctest --list-presets` for test presets. The
+compiler and dependencies must match the selected architecture; 32-bit Linux builds need 32-bit
+dependencies too.
 
 Shared builds are the usual choice on Linux and FreeBSD. Static builds need matching static
 dependencies and compiler runtimes. Windows still depends on Windows system DLLs. Python extensions

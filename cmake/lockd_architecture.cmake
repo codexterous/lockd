@@ -1,7 +1,8 @@
 # Choose the compiler's target before language detection. Ninja's architecture preset is IDE
 # metadata on Windows, so command-line users must also select the matching compiler environment.
-set(LOCKD_TARGET_ARCH "" CACHE STRING "Target architecture: x86, x86_64, or arm64 (empty: compiler default)")
-set_property(CACHE LOCKD_TARGET_ARCH PROPERTY STRINGS "" x86 x86_64 arm64)
+set(LOCKD_TARGET_ARCH "" CACHE STRING
+        "Target architecture: x86, x86_64, arm64, or riscv64 (empty: compiler default)")
+set_property(CACHE LOCKD_TARGET_ARCH PROPERTY STRINGS "" x86 x86_64 arm64 riscv64)
 if (LOCKD_TARGET_ARCH)
     if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
         if (LOCKD_TARGET_ARCH STREQUAL "x86")
@@ -32,6 +33,11 @@ function(lockd_detect_architecture result)
         #error Not an x86 target
         #endif
         int main() { return 0; }" Lockd_COMPILER_X86)
+    check_cxx_source_compiles("
+        #if !defined(__riscv) || __riscv_xlen != 64
+        #error Not a RISC-V64 target
+        #endif
+        int main() { return 0; }" Lockd_COMPILER_RISCV64)
     if (APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES ";")
         set(arch universal)
     elseif (Lockd_COMPILER_ARM64)
@@ -40,8 +46,11 @@ function(lockd_detect_architecture result)
         set(arch x86_64)
     elseif (Lockd_COMPILER_X86 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
         set(arch x86)
+    elseif (Lockd_COMPILER_RISCV64 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(arch riscv64)
     else ()
-        message(FATAL_ERROR "Unsupported compiler target architecture; expected x86, x86_64, or arm64.")
+        message(FATAL_ERROR
+                "Unsupported compiler target architecture; expected x86, x86_64, arm64, or riscv64.")
     endif ()
     if (LOCKD_TARGET_ARCH AND NOT LOCKD_TARGET_ARCH STREQUAL arch)
         message(FATAL_ERROR "Requested ${LOCKD_TARGET_ARCH}, but the compiler targets ${arch}. "

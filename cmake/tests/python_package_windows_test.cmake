@@ -44,11 +44,21 @@ function(run_package directory mode)
     # The frontend keeps its parent environment, but its SDK builder must load
     # Windows PowerShell's own modules independently of that parent module path.
     lockd_test_run(${failure} OUTPUT output COMMAND "${CMAKE_COMMAND}" -E env
+            --unset=PYTHONDONTWRITEBYTECODE --unset=PYTHONPYCACHEPREFIX
             "LOCKD_HOST_BUILD_DIR=${native}" "WHEEL_TRACE=${trace_file}"
             "SDK_BUILD_TRACE=${builds}" "SDK_PREFIX=${sdk}" "CMAKE_GENERATOR=NMake Makefiles"
             "PSModulePath=${directory}/parent-modules"
             "LOCKD_TEST_PARENT_MODULE_PATH=${directory}/parent-modules"
             "${CMAKE_COMMAND}" ${settings} -P "${root}/cmake/lockd_python_package.cmake")
+
+    # The architecture probe and frontend must keep bytecode out of the source tree,
+    # even when the caller has not disabled it in its own Python environment.
+    foreach(directory IN ITEMS scripts/release build)
+        if (EXISTS "${root}/${directory}/__pycache__")
+            message(FATAL_ERROR "Python packaging left bytecode beneath ${directory}")
+        endif ()
+    endforeach ()
+
     set(package_output "${output}" PARENT_SCOPE)
     if (NOT mode STREQUAL fail)
         file(READ "${trace_file}" frontend)
@@ -62,6 +72,8 @@ foreach(case IN ITEMS default-venv explicit-python missing-sdk read-only static-
     foreach(name IN ITEMS lockd_python_package.cmake lockd_output_layout.cmake)
         configure_file("${LOCKD_TEST_SOURCE}/cmake/${name}" "${root}/cmake/${name}" COPYONLY)
     endforeach ()
+    configure_file("${LOCKD_TEST_SOURCE}/scripts/release/output_layout.py"
+            "${root}/scripts/release/output_layout.py" COPYONLY)
     file(WRITE "${root}/build/__init__.py" "")
     # The external Python frontend records its invocation. Native selection assertions
     # stay in this CMake test; the fixture neither configures nor compiles native code.
