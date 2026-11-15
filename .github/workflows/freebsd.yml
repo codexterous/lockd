@@ -22,7 +22,9 @@ env:
 
 jobs:
   tests:
-    name: ${{ matrix.release }} / ${{ matrix.arch }}
+    # The sidebar keeps only the final slash-separated part of a job name.
+    # Put both matrix values in that label, as with the Python wheel jobs.
+    name: ${{ matrix.release }} (${{ matrix.arch }})
     runs-on: ubuntu-24.04
 
     # Emulated guests need more time to compile the native test suite.
@@ -50,7 +52,7 @@ jobs:
         uses: ./.github/actions/reuse_compatibility
         with:
           version: ${{ inputs.source_version }}
-          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} / ${{ matrix.arch }}
+          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} (${{ matrix.arch }})
       - name: Download release source
         if: steps.reuse.outputs.reused != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7

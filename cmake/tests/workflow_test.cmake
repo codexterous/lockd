@@ -226,8 +226,8 @@ set(groups "wheels_linux|Python - Linux|release_python|wheels"
         "freebsd|Compatibility Testing - FreeBSD|freebsd|tests"
         "windows_services|Service Testing - Windows|windows_services|tests")
 
-# The sidebar displays the leaf job's name beneath one FreeBSD group. Include both
-# release and architecture there, and keep the four supported combinations explicit.
+# Keep release and architecture together in the sidebar, using the same parentheses
+# form as the Python wheel jobs. Slash-separated prefixes are omitted from leaf labels.
 set(freebsd_matrix [=[        include:
           - release: '14.4'
             arch: amd64
@@ -240,12 +240,12 @@ set(freebsd_matrix [=[        include:
     steps:
 ]=])
 foreach(value IN ITEMS
-        [=[    name: ${{ matrix.release }} / ${{ matrix.arch }}]=]
+        [=[    name: ${{ matrix.release }} (${{ matrix.arch }})]=]
         "    runs-on: ubuntu-24.04\n"
         "${freebsd_matrix}"
         [=[          release: ${{ matrix.release }}]=]
         [=[          arch: ${{ matrix.arch }}]=]
-        [=[          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} / ${{ matrix.arch }}]=]
+        [=[          job: Compatibility Testing - FreeBSD / ${{ matrix.release }} (${{ matrix.arch }})]=]
         [=[          name: freebsd_${{ matrix.release }}_${{ matrix.arch }}_diagnostics]=])
     lockd_test_contains("${block_freebsd_tests}" "${value}")
 endforeach ()

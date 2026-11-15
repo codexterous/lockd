@@ -27,7 +27,7 @@ x86_64, and ARM64, including the daemon, client libraries, DLL, and native test 
 
 FreeBSD compatibility jobs build and test the daemon, C++ client, C wrapper, and native test suite.
 They do not build Python bindings. Compatibility and Release use the same FreeBSD group, with each
-job labeled by release and architecture, such as `15.1 / amd64`.
+job labeled by release and architecture, such as `15.1 (amd64)`.
 
 Windows reserves each daemon's TCP port across all local addresses and both IP families. Separate
 daemons must use different ports, even when listening on different local IPs. This prevents
