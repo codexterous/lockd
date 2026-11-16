@@ -1,16 +1,39 @@
 # FreeBSD ports and service
 
-Use `net/lockd` for the daemon, C++ client SDK, and native tests. Use `devel/py-pylockd` for the
-Python binding; it does not require a local daemon. For a build outside the ports tree, see
-[BUILDING.md](BUILDING.md).
+`net/lockd` provides the daemon, C++ and C client SDKs, and optional native tests. Both client
+libraries are included in the daemon package with the default `LIBRARIES` option enabled.
+`devel/py-pylockd` provides the Python bindings and can be installed independently of the daemon.
 
-While FreeBSD is the only officially supported BSD, other BSDs such as OpenBSD and NetBSD should
-also work. If you encounter an issue compiling, running, or testing lockd or the client libraries on
-a different BSD, please submit an issue.
+Run package installation and service commands as root. The paths below assume the default
+`/usr/local` prefix; adjust them if the ports were installed with a different `PREFIX`.
+
+## Install packages
+
+Install the daemon and its default client SDK:
+
+```sh
+pkg install lockd
+```
+
+The `lockd` package includes the C++ client library and its C wrapper, along with their public
+headers and CMake package files. Applications can use these clients with a remote server without
+enabling or running the installed daemon.
+
+To install Python bindings separately, choose the package matching the application's interpreter.
+For Python 3.12:
+
+```sh
+pkg install py312-pylockd
+```
+
+Binary packages use the options selected by their package repository. Build from the ports tree to
+choose different options, including installation of the native test executable. The daemon's install
+message includes service instructions and, when tests are installed, their location and invocation.
+Display that message again with `pkg info -D lockd`.
 
 ## Install from ports
 
-With the ports tree available, build and install the daemon as root:
+With an up-to-date ports tree, configure and install the daemon:
 
 ```sh
 cd /usr/ports/net/lockd
@@ -18,75 +41,164 @@ make config
 make install clean
 ```
 
-Install the Python binding separately if needed:
+`make showconfig` displays selected options. See [Port options and tests](#port-options-and-tests)
+for option details and Python version selection. Installation registers the package with `pkg` and
+creates the `lockd_daemon` user and group for the service.
 
-```sh
-cd /usr/ports/devel/py-pylockd
-make install clean
-```
+The default SDK installs headers under `/usr/local/include/liblockd/` and
+`/usr/local/include/liblockd_dll/`, libraries under `/usr/local/lib/`, and CMake package files under
+`/usr/local/lib/cmake/lockd/`. C++ applications can include `<liblockd/liblockd.hpp>` and use
+`find_package(lockd CONFIG REQUIRED)`. See [USAGE.md](USAGE.md) for the C++ interface and
+[DLL.md](DLL.md) for the C wrapper.
 
 ## Service configuration
 
-Enable and start the service as root:
+Installation does not enable or start the service. Enable it at boot and start it now:
 
 ```sh
 sysrc lockd_daemon_enable=YES
 service lockd_daemon start
 ```
 
-Override defaults in `/etc/rc.conf` as needed:
+Check its status with `service lockd_daemon status`. After changing settings in `/etc/rc.conf`,
+apply them with `service lockd_daemon restart`; use `service lockd_daemon stop` to stop it.
+
+These are the service defaults, which can be overridden in `/etc/rc.conf`:
 
 ```sh
-lockd_daemon_interface="127.0.0.1"
+lockd_daemon_interface="localhost"
 lockd_daemon_port="7198"
 lockd_daemon_log_level="info"
 lockd_daemon_user="lockd_daemon"
 lockd_daemon_group="lockd_daemon"
 lockd_daemon_pidfile="/var/run/lockd_daemon/lockd.pid"
 lockd_daemon_logfile="/var/log/lockd_daemon/lockd.log"
+lockd_daemon_flags=""
 ```
 
-These are the defaults. Use `lockd_daemon_flags` for additional options only, without repeating
-options managed by the settings above. The daemon starts as root and drops privileges to the
-configured user and group after preparing its files.
+Use `lockd_daemon_flags` for additional daemon options, without repeating those managed by the
+settings above. For example, `lockd_daemon_flags="--threads 4"` selects four worker threads. Without
+an explicit count, the daemon uses the available hardware threads, capped at eight, or one if the
+count is unknown. See [RUNNING.md](RUNNING.md) for logging and other daemon options.
 
-The port uses `/var/run/lockd_daemon/lockd.pid` and `/var/log/lockd_daemon/lockd.log`. Override
-these with `lockd_daemon_pidfile` and `lockd_daemon_logfile`, respectively. The startup script
-creates the default log directory with mode 0750 and the configured user and group as owners when
-absent; lockd prepares the PID directory itself. Existing directories are left unchanged.
-Administrators choosing another log path must prepare its directory and permissions before starting
-the service. When changing accounts, update existing directory ownership as needed.
+The daemon starts as root, prepares its files, and drops privileges to the configured user and
+group. The startup script creates the default log directory with mode 0750 and the configured
+ownership if it is absent; lockd prepares the PID directory itself. Prepare custom log directories
+and their permissions before starting the service. When changing accounts, update existing directory
+ownership as needed.
+
+The default listener accepts only local connections. To allow remote clients, set
+`lockd_daemon_interface` to the appropriate local address and permit the chosen TCP port through the
+firewall for trusted clients. Deployment requirements are described in [SECURITY.md](SECURITY.md).
 
 ## Port options and tests
 
-Run `make config` in `net/lockd` to select installation options:
+Select options with `make config` in `/usr/ports/net/lockd`:
 
-- `LIBRARIES` (on by default) installs the C++ client and C wrapper libraries, public headers, and
-  CMake package files. Disabling it embeds the client in the daemon and omits the development files.
-- `STATIC` (off by default) links the daemon and native tests fully statically, including Boost and
-  system runtimes. With `LIBRARIES` enabled, the SDK contains static archives instead of shared
-  libraries. Boost is required only while building a static package.
-- `TESTS` (off by default) builds and installs `tests/lockd/lockd_test` under `${PREFIX}`, following
-  FreeBSD's installed test suite layout.
+- `LIBRARIES` (on by default) includes the shared C++ and C client libraries, public headers, and
+  CMake package files in the daemon package. Disabling it embeds the client in the daemon and omits
+  the SDK files.
+- `PYTHON` (off by default) installs the matching `devel/py-pylockd` package as a dependency.
+- `STATIC` (off by default) links the daemon and installed native test executable fully statically,
+  including Boost and system runtimes. With `LIBRARIES` enabled, the SDK still provides shared
+  libraries and registers them with ldconfig. Optional components keep their own dependencies.
+- `TESTS` (off by default) builds and installs `/usr/local/tests/lockd/lockd_test`. It controls
+  whether the tests are installed, not whether they can be run from the ports tree.
 
-`make test` builds and runs the native test suite regardless of the `TESTS` option. Run installed
-tests from a writable working directory, for example:
+`STATIC` does not change the linkage of the separately packaged Python bindings.
+
+### Python version selection
+
+The daemon port is unflavored. To enable its Python dependency and select Python 3.12:
 
 ```sh
+cd /usr/ports/net/lockd
+make WITH=PYTHON DEFAULT_VERSIONS=python=3.12 install clean
+```
+
+The installed packages are `lockd` and `py312-pylockd`. Replace `3.12` with another supported Python
+version as needed. `DEFAULT_VERSIONS` selects versions for that make invocation; to retain the
+preference for future ports builds, add `DEFAULT_VERSIONS+=python=3.12` to `/etc/make.conf`.
+
+The Python port itself uses Python flavors. To install its Python 3.12 variant independently:
+
+```sh
+cd /usr/ports/devel/py-pylockd
+make FLAVOR=py312 install clean
+```
+
+This package contains the Python extension and its embedded C++ client. It does not install or
+require a local daemon during normal use. See [PYTHON.md](PYTHON.md) for the Python API.
+
+### Run native tests from the ports tree
+
+Run the native test suite before or after installation:
+
+```sh
+cd /usr/ports/net/lockd
+make test
+```
+
+`make test` builds and runs the suite even when `TESTS` is disabled. It does not require the test
+executable to be installed. Keep the same option and `DEFAULT_VERSIONS` settings when testing a
+custom build.
+
+### Test an installed package
+
+Enable `TESTS` when building `net/lockd` to install the native test executable. As a regular user,
+run it from a writable working directory:
+
+```sh
+cd ~
 /usr/local/tests/lockd/lockd_test --report_level=short
 ```
 
-The tests launch their own daemon instances. The protocol tests default to port 27198, which must be
-unused; append `-- --port <port>` to choose another port.
+The tests start their own daemon instances and can run while the system service is running. The
+protocol tests use loopback port 27198 by default, which must be available. To use another port:
 
-`devel/py-pylockd` builds a wheel containing the Python extension and embedded C++ client library.
-It neither installs nor requires the daemon. Select the Python flavor when building and installing,
-for example `make install FLAVOR=py312`.
+```sh
+/usr/local/tests/lockd/lockd_test --report_level=short -- --port 27199
+```
 
-Run `make test FLAVOR=py312` in the Python port to run the Python unittest suite against the staged
-extension, without installing pylockd first. Testing adds `net/lockd` as a test-only dependency. The
-tests launch isolated daemon instances on loopback ports; they do not start or use the system
-service.
+The executable is outside PATH, following FreeBSD's installed test-suite layout. See
+[TESTING.md](TESTING.md) for test groups and other runner options.
+
+### Run Python tests
+
+Run the Python unit tests from their port directory, using the same interpreter selection as the
+package being tested:
+
+```sh
+cd /usr/ports/devel/py-pylockd
+make FLAVOR=py312 test
+```
+
+The tests import the staged extension, so pylockd does not need to be installed first. Testing adds
+`net/lockd` as a test-only dependency and launches isolated daemon instances on loopback ports. It
+does not start or use the system service.
+
+After installing the Python package, check that the selected interpreter can import it:
+
+```sh
+python3.12 -c 'import pylockd'
+```
+
+## Upgrades and removal
+
+For repository packages, use `pkg upgrade lockd` and restart the service afterward. For a customized
+ports build, update through the same ports workflow with its selected options and Python version.
+
+To remove the daemon package, stop and disable its service first:
+
+```sh
+service lockd_daemon stop
+sysrc lockd_daemon_enable=NO
+pkg delete lockd
+```
+
+Logs, administrator settings in `/etc/rc.conf`, and the service user and group remain after package
+removal. Remove them separately when they are no longer needed. The Python bindings are a separate
+package and can remain installed for applications using a remote daemon.
 
 ## Host failover with CARP
 

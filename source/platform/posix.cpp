@@ -92,6 +92,58 @@ void throw_system_error(const char* const operation)
     throw boost::system::system_error(errno, boost::system::generic_category(), operation);
 }
 
+int open_runtime_directory(
+        const std::filesystem::path& path,
+        const uid_t uid,
+        const gid_t gid,
+        const bool create_parents
+)
+{
+    // Preserve trailing separators and '..' through existing symlinks. Parent descriptors
+    // keep recursive creation in the opened directories if their pathnames are replaced.
+    const auto absolute = std::filesystem::absolute(path);
+    const auto directory = absolute.filename().empty() ? absolute.parent_path() : absolute;
+    const auto context = "Preparing runtime directory '" + path.string() + "'";
+    if (directory == directory.root_path()) {
+        const int descriptor = open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (descriptor < 0)
+            throw boost::system::system_error(errno, boost::system::generic_category(), context);
+        return descriptor;
+    }
+
+    const auto name = directory.filename();
+    const int parent =
+            create_parents
+                    ? open_runtime_directory(directory.parent_path(), uid, gid, true)
+                    : open(directory.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (parent < 0)
+        throw boost::system::system_error(errno, boost::system::generic_category(), context);
+    try {
+        int flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
+        if (mkdirat(parent, name.c_str(), 0777) == 0) {
+            lkd::platform::posix::detail::assign_runtime_directory_ownership(
+                    parent, name, uid, gid
+            );
+            // A newly created directory must not become a symlink before recursion uses it.
+            flags |= O_NOFOLLOW;
+        }
+        else if (errno != EEXIST)
+            throw boost::system::system_error(errno, boost::system::generic_category(), context);
+
+        // Existing directory aliases remain valid and keep their administrator-set ownership.
+        const int descriptor = openat(parent, name.c_str(), flags);
+        if (descriptor < 0)
+            throw boost::system::system_error(errno, boost::system::generic_category(), context);
+        close(parent);
+        return descriptor;
+    }
+    catch (...) {
+        close(parent);
+        throw;
+    }
+}
+
+
 pid_t stale_pid(const int descriptor, const std::string& context)
 {
     char buffer[64];
@@ -354,49 +406,14 @@ void lkd::platform::posix::posix_startup::ready()
 
 
 void lkd::platform::posix::prepare_runtime_directory(
-        const std::filesystem::path& path, const uid_t uid, const gid_t gid
+        const std::filesystem::path& path,
+        const uid_t uid,
+        const gid_t gid,
+        const bool create_parents
 )
 {
-    // Keep trailing separators and root paths equivalent to their usual directory spelling.
-    // Do not normalize '..' across a symlink: that could select a different parent directory.
-    const auto absolute = std::filesystem::absolute(path);
-    const auto directory = absolute.filename().empty() ? absolute.parent_path() : absolute;
-    const auto name =
-            directory.filename().empty() ? std::filesystem::path(".") : directory.filename();
-    const auto context = "Preparing runtime directory '" + path.string() + "'";
-
-    // Pin the parent before creation so replacing any part of its pathname cannot redirect
-    // the subsequent ownership change. Intentional parent symlinks, such as /var/run, still work.
-    const int parent = open(directory.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (parent < 0)
-        throw boost::system::system_error(errno, boost::system::generic_category(), context);
-    try {
-        if (mkdirat(parent, name.c_str(), 0777) == 0)
-            detail::assign_runtime_directory_ownership(parent, name, uid, gid);
-        else {
-            if (errno != EEXIST)
-                throw boost::system::system_error(
-                        errno, boost::system::generic_category(), context
-                );
-
-            // Preserve the existing-directory contract, including administrator-owned symlinks
-            // to directories. Neither an existing directory nor its target is ever chowned.
-            struct stat existing{};
-            if (fstatat(parent, name.c_str(), &existing, 0) != 0)
-                throw boost::system::system_error(
-                        errno, boost::system::generic_category(), context
-                );
-            if (!S_ISDIR(existing.st_mode))
-                throw boost::system::system_error(
-                        EEXIST, boost::system::generic_category(), context
-                );
-        }
-    }
-    catch (...) {
-        close(parent);
-        throw;
-    }
-    close(parent);
+    const int descriptor = open_runtime_directory(path, uid, gid, create_parents);
+    close(descriptor);
 }
 
 
@@ -589,13 +606,14 @@ std::optional<int> lkd::platform::posix::startup::
     log_file = std::filesystem::absolute(log_file);
     _pidFile = std::filesystem::absolute(_pidFile).string();
 
-    // Create only the daemon's own directories while privileged. Explicit log paths
-    // remain the administrator's responsibility, including directory traversal rights.
-    if (!_noDrop) {
-        if (options["log-file"].defaulted())
-            lkd::platform::posix::prepare_runtime_directory(
-                    log_file.parent_path(), pwd->pw_uid, grp->gr_gid
-            );
+    // Prepare the selected log path before dropping privileges, including explicit paths.
+    // Only newly created directories receive ownership; existing paths are left unchanged.
+    if (_noDrop)
+        std::filesystem::create_directories(log_file.parent_path());
+    else {
+        lkd::platform::posix::prepare_runtime_directory(
+                log_file.parent_path(), pwd->pw_uid, grp->gr_gid, true
+        );
         if (!_noFork || !options["pid-file"].defaulted())
             lkd::platform::posix::prepare_runtime_directory(
                     std::filesystem::absolute(_pidFile).parent_path(), pwd->pw_uid, grp->gr_gid

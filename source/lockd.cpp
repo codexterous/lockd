@@ -313,22 +313,25 @@ int main(int argc, const char* const argv[])
                 throw;
             }
 
+            const auto ready = [&] {
 #ifdef WIN32
-            lkd::platform::win32::startup::ready();
+                lkd::platform::win32::startup::ready();
 #else
-            platform_startup.ready();
+                platform_startup.ready();
 #endif
-            console_print(
-                    lkd::cp_stdout,
-                    lkd::ll_info,
-                    str(boost::format("starting lockd on interface %1% port %2%\n") %
-                        (boost::asio::ip::make_address(listen_ip).is_v6() ? '[' + listen_ip + ']'
-                                                                          : listen_ip) %
-                        port)
-            );
+                console_print(
+                        lkd::cp_stdout,
+                        lkd::ll_info,
+                        str(boost::format("starting lockd on interface %1% port %2%\n") %
+                            (boost::asio::ip::make_address(listen_ip).is_v6()
+                                     ? '[' + listen_ip + ']'
+                                     : listen_ip) %
+                            port)
+                );
+            };
 
             // Run the server.
-            const auto result = static_cast<int>(server_ptr->run());
+            const auto result = static_cast<int>(server_ptr->run(ready));
             return result;
         }
         catch (boost::program_options::error& e) {

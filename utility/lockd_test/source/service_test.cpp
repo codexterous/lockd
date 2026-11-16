@@ -147,7 +147,7 @@ BOOST_AUTO_TEST_CASE(daemon_help_and_validation_preserve_unicode_paths)
 {
     // Copy only the daemon and its runtime DLLs. Help must work from a Unicode working
     // directory, retain the service command preview, and report an invalid log path without
-    // losing its Unicode argument. A missing log directory prevents the daemon from starting.
+    // losing its Unicode argument. A directory cannot be used as the log file itself.
     const auto directory =
             std::filesystem::current_path() /
             (L"unicode_\u798f_\U0001F512_" +
@@ -160,13 +160,16 @@ BOOST_AUTO_TEST_CASE(daemon_help_and_validation_preserve_unicode_paths)
         if (entry.path().extension() == L".dll")
             std::filesystem::copy_file(entry.path(), directory / entry.path().filename());
     }
+    std::filesystem::create_directories(
+            directory / L"blocked_\u798f" / L"log_\u00e9_\U0001F512.log"
+    );
     for (const auto& arguments :
          {std::vector<std::wstring>{L"--help"},
           std::vector<std::wstring>{
                   L"--host",
                   L"127.0.0.1",
                   L"--log-file",
-                  L"missing_\u798f\\log_\u00e9_\U0001F512.log"
+                  L"blocked_\u798f\\log_\u00e9_\U0001F512.log"
           }}) {
         ldt::process::ipstream output;
         ldt::process::child child(
@@ -241,6 +244,40 @@ BOOST_AUTO_TEST_CASE(daemon_help_and_validation_preserve_unicode_paths)
     BOOST_REQUIRE_MESSAGE(
             !error, "Remove the copied daemon and its directory: " << error.message()
     );
+}
+
+
+BOOST_AUTO_TEST_CASE(console_startup_creates_explicit_unicode_log_directories)
+{
+    // Console startup must prepare an explicit nested log path without requiring a service
+    // installation or elevation. Exercise the production method with a writable Unicode path.
+    namespace po = boost::program_options;
+    const auto directory =
+            std::filesystem::current_path() /
+            ("explicit_log_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    BOOST_REQUIRE(std::filesystem::create_directory(directory));
+    for (const auto& log_file :
+         {directory / L"\u798f" / L"nested" / L"\u00e9_\U0001F512.log",
+          std::filesystem::path(directory.filename().wstring() + L".log")}) {
+        const lkd::platform::win32::startup startup(directory, 80, 78);
+        po::options_description visible, hidden;
+        startup.add_options(visible, hidden);
+        visible.add_options()("log-file", po::value<std::string>());
+        po::variables_map options;
+        po::store(
+                po::command_line_parser({"--log-file", log_file.u8string()}).options(visible).run(),
+                options
+        );
+        po::notify(options);
+        BOOST_CHECK_MESSAGE(
+                !startup.prepare(options, "127.0.0.1", 0, 1, log_file, lkd::ll_info).has_value(),
+                "Explicit log directories permit ordinary console startup"
+        );
+        BOOST_CHECK_MESSAGE(std::filesystem::is_regular_file(log_file), "The selected log opens");
+        std::filesystem::remove(log_file);
+    }
+    std::filesystem::remove_all(directory);
 }
 
 

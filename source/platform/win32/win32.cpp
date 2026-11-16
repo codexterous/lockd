@@ -205,18 +205,18 @@ std::optional<int> lkd::platform::win32::startup::prepare(
             return result;
     }
     if (!uninstall) {
-        if ((install || options.count("as-service")) && options["log-file"].defaulted()) {
-            // Only the service default gets an automatically created parent. An explicit
-            // log path retains the existing contract that its directory must already exist.
-            std::error_code error;
-            std::filesystem::create_directories(log_file.parent_path(), error);
-            if (error)
-                throw boost::system::system_error(
-                        error.value(),
-                        boost::system::system_category(),
-                        "Cannot create the Windows service log directory"
-                );
-        }
+        // Prepare explicit paths as well as defaults. Resolve a bare filename against the
+        // working directory so it does not request creation of an empty parent path.
+        std::error_code error;
+        std::filesystem::create_directories(
+                std::filesystem::absolute(log_file).parent_path(), error
+        );
+        if (error)
+            throw boost::system::system_error(
+                    error.value(),
+                    boost::system::system_category(),
+                    "Cannot create the log directory for '" + log_file.u8string() + "'"
+            );
         lkd::logging::validate_log_file(log_file, true);
     }
 

@@ -51,6 +51,7 @@
 
 # include <chrono>
 # include <cstdint>
+# include <functional>
 # include <map>
 # include <mutex>
 # include <string>
@@ -92,7 +93,9 @@ public:
     /* public methods */
 public:
     [[nodiscard]] static boost::asio::ip::address resolve_interface(const std::string& listen_ip);
-    size_t run();
+    // Notify the caller after signal handling and every I/O worker are created, but before
+    // workers process events. Failed notification stops and joins them before propagating.
+    size_t run(const std::function<void()>& ready = {});
     // Stop accepting work and allow current lock holders at most 30 seconds to release.
     void stop();
     lkd::lock_store& lock_store() { return _lockStore; }

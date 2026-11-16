@@ -96,9 +96,14 @@ private:
     std::filesystem::path _pidFile;
 };
 
-// Only newly created leaf directories are assigned to the service account. Existing shared
-// directories and explicit file locations must never have their ownership changed implicitly.
-void prepare_runtime_directory(const std::filesystem::path& path, const uid_t uid, const gid_t gid);
+// Assign only newly created directories to the service account, preserving existing ownership.
+// Log paths request recursive parent creation; PID paths retain single-directory creation.
+void prepare_runtime_directory(
+        const std::filesystem::path& path,
+        const uid_t uid,
+        const gid_t gid,
+        const bool create_parents = false
+);
 
 namespace detail {
 

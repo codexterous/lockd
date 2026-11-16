@@ -48,7 +48,8 @@ returned address, which may be IPv6 (`::1`) for `localhost`.
 
 Levels are `trace`, `debug`, `info`, `warning`, `error`, and `fatal`, also accepted as numbers 0
 through 5. The threshold includes that level and everything above it. Quote paths containing spaces.
-`-l` selects the level; `--log-file` selects the file.
+`-l` selects the level; `--log-file` selects the file. Missing log directories are created at
+startup, including for an explicit `--log-file` path.
 
 Verbose logging can substantially reduce throughput, especially `trace`, which logs individual lock
 and connection activity. Waiting for log I/O can increase latency while lowering CPU utilization.
@@ -135,15 +136,15 @@ Otherwise `--user` is required. An omitted `--group` uses the selected user's pr
 do not require a target account.
 
 The default PID file is `/run/lockd/lockd.pid` when `/run` exists, otherwise
-`/var/run/lockd/lockd.pid`. The default log is `/var/log/lockd/lockd.log`. Startup creates the
-daemon's directories before dropping privileges and assigns only newly created directories to the
-selected account. Existing directories and explicit log paths must already permit that account to
-traverse directories and write files.
+`/var/run/lockd/lockd.pid`. The default log is `/var/log/lockd/lockd.log`. Startup creates missing
+directories for the selected log path, including paths supplied with `--log-file`, before dropping
+privileges. Newly created log directories belong to the selected account. Existing directories keep
+their ownership and permissions and must allow that account to traverse them and write files.
 
-With `--no-drop`, default log and PID paths use the working directory. Foreground mode (`--no-fork`)
-writes a PID file only when `--pid-file` is explicitly supplied. Background startup returns success
-only after the daemon is ready to serve clients; startup failure removes any PID file owned by that
-child.
+With `--no-drop`, default log and PID paths use the working directory, and missing log directories
+are created as the invoking user. Foreground mode (`--no-fork`) writes a PID file only when
+`--pid-file` is explicitly supplied. Background startup returns success only after the daemon is
+ready to serve clients; startup failure removes any PID file owned by that child.
 
 Startup can reclaim a stale PID file when its recorded process no longer exists. It leaves live,
 malformed, and inaccessible files untouched and reports the problem. Keep PID files on a local

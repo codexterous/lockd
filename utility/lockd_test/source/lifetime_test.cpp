@@ -30,10 +30,12 @@
 #include <chrono>
 #include <exception>
 #include <filesystem>
+#include <future>
 #include <initializer_list>
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #include <boost/asio/buffer.hpp>
@@ -41,6 +43,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/system/error_code.hpp> // IWYU pragma: keep
@@ -51,7 +54,6 @@
 #include <boost/test/unit_test_suite.hpp>
 
 #ifndef WIN32
-# include <future>
 # include <thread>
 
 # include <signal.h> // NOLINT(modernize-deprecated-headers): POSIX kill, outside <csignal>.
@@ -66,12 +68,10 @@
 
 #include "../../../include/client.hpp"
 #include "../../../include/lock_store.hpp"
+#include "../../../include/lockd.hpp"
 #include "../../../include/mutex.hpp"
 #include "../../../include/new_shared_ptr.hpp"
-#ifdef WIN32
-# include "../../../include/lockd.hpp"
-# include "../../../include/server.hpp"
-#endif
+#include "../../../include/server.hpp"
 #include "../include/daemon_fixture.hpp"
 #include "../include/launcher.hpp"
 
@@ -84,6 +84,50 @@ using lkd::detail::lifetime_test_access;
 namespace {
 
 BOOST_AUTO_TEST_SUITE(lifetimes)
+
+
+BOOST_AUTO_TEST_CASE(server_ready_notification_precedes_worker_processing)
+{
+    // Workers must wait while startup finalizes process-wide state, then execute queued
+    // work and an immediate stop request. Readiness must be reported exactly once.
+    lkd::server server("127.0.0.1", 0, 2, lkd::rr_no_report_running);
+    std::promise<void> worker;
+    auto completed = worker.get_future();
+    boost::asio::post(server.io_service(), [&worker] { worker.set_value(); });
+    unsigned int notifications = 0;
+    bool worker_waiting = false;
+    const auto result = server.run([&] {
+        ++notifications;
+        worker_waiting = completed.wait_for(std::chrono::seconds(0)) == std::future_status::timeout;
+        server.stop();
+    });
+    BOOST_CHECK_EQUAL(notifications, 1);
+    BOOST_CHECK_MESSAGE(worker_waiting, "Workers wait for startup to finalize process state");
+    BOOST_CHECK_MESSAGE(
+            completed.wait_for(std::chrono::seconds(0)) == std::future_status::ready,
+            "Workers process queued I/O after the startup callback"
+    );
+    BOOST_CHECK_EQUAL(result, 0);
+    BOOST_CHECK(server.stopping());
+}
+
+
+BOOST_AUTO_TEST_CASE(server_ready_notification_failure_joins_workers)
+{
+    // Failed startup reporting must propagate after worker cleanup, without terminating
+    // the process by destroying a joinable thread or leaving the I/O context running.
+    lkd::server server("127.0.0.1", 0, 2, lkd::rr_no_report_running);
+    unsigned int notifications = 0;
+    BOOST_CHECK_THROW(
+            server.run([&notifications] {
+                ++notifications;
+                throw std::runtime_error("startup notification failed");
+            }),
+            std::runtime_error
+    );
+    BOOST_CHECK_EQUAL(notifications, 1);
+    BOOST_CHECK(server.io_service().stopped());
+}
 
 
 #ifndef WIN32

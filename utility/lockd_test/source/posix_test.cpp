@@ -58,6 +58,7 @@
 #include <boost/program_options/errors.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
+#include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/test/tools/context.hpp>
@@ -810,6 +811,58 @@ BOOST_AUTO_TEST_CASE(startup_parent_distinguishes_ready_from_early_exit)
 }
 
 
+BOOST_AUTO_TEST_CASE(background_startup_handles_immediate_termination_after_readiness)
+{
+    // No root account or privilege drop is needed to check the real background startup
+    // handshake. As soon as the parent reports success, both termination signals must
+    // follow normal shutdown and remove the child's PID file.
+    for (const int signal : {SIGINT, SIGTERM}) {
+        BOOST_TEST_CONTEXT("signal=" << signal)
+        {
+            with_runtime_parent([signal](const auto& root, const int /*parent*/) {
+                const auto pid_path = root / "lockd.pid";
+                ldt::process::child parent(
+                        ldt::daemon_path().string(),
+                        "--no-drop",
+                        "--log-file",
+                        (root / "lockd.log").string(),
+                        "--pid-file",
+                        pid_path.string(),
+                        "--port",
+                        "0",
+                        "--threads",
+                        "1",
+                        ldt::process::std_out > ldt::process::null
+                );
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                while (parent.running() && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                const bool exited = !parent.running();
+                if (!exited)
+                    parent.terminate();
+                parent.wait();
+                BOOST_REQUIRE_MESSAGE(
+                        exited && parent.exit_code() == 0, "The parent reports successful startup"
+                );
+                std::ifstream pid_file(pid_path);
+                pid_t pid = 0;
+                pid_file >> pid;
+                BOOST_REQUIRE_MESSAGE(pid > 1, "Read the background daemon's PID");
+                BOOST_REQUIRE_EQUAL(kill(pid, signal), 0);
+                const auto stopped = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                while (std::filesystem::exists(pid_path) &&
+                       std::chrono::steady_clock::now() < stopped)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                BOOST_CHECK_MESSAGE(
+                        !std::filesystem::exists(pid_path),
+                        "Termination immediately after readiness removes the PID file"
+                );
+            });
+        }
+    }
+}
+
+
 BOOST_AUTO_TEST_CASE(runtime_directory_preparation_preserves_existing_ownership)
 {
     // Prepare a new runtime directory, then request a different identity for it.
@@ -830,6 +883,76 @@ BOOST_AUTO_TEST_CASE(runtime_directory_preparation_preserves_existing_ownership)
             "Existing directory ownership is preserved"
     );
     std::filesystem::remove(directory);
+}
+
+
+BOOST_AUTO_TEST_CASE(recursive_log_directories_preserve_existing_ancestors_and_close_handles)
+{
+    // Create missing log parents through an existing alias, preserving ancestor ownership
+    // and permissions. Success and failure must both release every directory descriptor.
+    with_runtime_parent([](const auto& root, const int parent) {
+        struct stat before{};
+        BOOST_REQUIRE_EQUAL(stat((root / "parent").c_str(), &before), 0);
+        std::filesystem::create_directory_symlink(root / "parent", root / "alias");
+        const auto directory = root / "alias" / "logs" / "nested";
+        const int available = dup(parent);
+        BOOST_REQUIRE_MESSAGE(available >= 0, "Find the next unused descriptor");
+        close(available);
+        lkd::platform::posix::prepare_runtime_directory(directory, getuid(), getgid(), true);
+        lkd::platform::posix::prepare_runtime_directory(
+                directory, getuid() + 1, getgid() + 1, true
+        );
+        for (const auto& path : {root / "parent" / "logs", directory}) {
+            struct stat created{};
+            BOOST_REQUIRE_EQUAL(stat(path.c_str(), &created), 0);
+            BOOST_CHECK_EQUAL(created.st_uid, getuid());
+            BOOST_CHECK_EQUAL(created.st_gid, getgid());
+        }
+        struct stat after{};
+        BOOST_REQUIRE_EQUAL(stat((root / "parent").c_str(), &after), 0);
+        BOOST_CHECK_EQUAL(before.st_uid, after.st_uid);
+        BOOST_CHECK_EQUAL(before.st_gid, after.st_gid);
+        BOOST_CHECK_EQUAL(before.st_mode, after.st_mode);
+        std::ofstream(directory / "file") << "preserve this file\n";
+        BOOST_CHECK_THROW(
+                lkd::platform::posix::prepare_runtime_directory(
+                        directory / "file" / "child", getuid(), getgid(), true
+                ),
+                boost::system::system_error
+        );
+        const int next = dup(parent);
+        BOOST_REQUIRE_MESSAGE(next >= 0, "Recheck descriptors after recursive preparation");
+        BOOST_CHECK_EQUAL(next, available);
+        close(next);
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(no_drop_startup_creates_explicit_log_directories)
+{
+    // Exercise the production startup path as the invoking user, without forking or
+    // changing identity. Explicit nested paths must work for unprivileged runs too.
+    namespace po = boost::program_options;
+    with_runtime_parent([](const auto& root, const int /*parent*/) {
+        lkd::platform::posix::startup startup(root, 80, 78);
+        po::options_description visible, hidden;
+        startup.add_options(visible, hidden);
+        visible.add_options()("log-file", po::value<std::string>());
+        auto log_file = root / "logs" / "nested" / "lockd.log";
+        po::variables_map options;
+        po::store(
+                po::command_line_parser({"--no-fork", "--no-drop", "--log-file", log_file.string()})
+                        .options(visible)
+                        .run(),
+                options
+        );
+        po::notify(options);
+        BOOST_CHECK_MESSAGE(
+                !startup.prepare(options, "127.0.0.1", 0, 1, log_file, lkd::ll_info).has_value(),
+                "Preparing the explicit log path permits startup"
+        );
+        BOOST_CHECK_MESSAGE(std::filesystem::is_regular_file(log_file), "The log can be opened");
+    });
 }
 
 
@@ -1100,7 +1223,8 @@ BOOST_AUTO_TEST_CASE(background_startup_reports_bad_log_without_abort_or_pid_fil
 BOOST_AUTO_TEST_CASE(privileged_startup_drops_identity_and_cleans_pid_on_shutdown)
 {
     // When explicitly run as root, launch a daemon as nobody and inspect its kernel
-    // identity. Verify readiness, log creation, and PID-file cleanup after SIGTERM.
+    // identity. Verify that explicit nested log directories are prepared before the drop,
+    // readiness is reported, and SIGTERM removes the PID file.
     if (geteuid() != 0) {
         BOOST_TEST_MESSAGE("Privilege-drop integration requires a separately requested root run");
         return;
@@ -1111,68 +1235,83 @@ BOOST_AUTO_TEST_CASE(privileged_startup_drops_identity_and_cleans_pid_on_shutdow
     );
     const auto uid = account->pw_uid;
     const auto gid = account->pw_gid;
-    const auto directory = std::filesystem::current_path() / "privilege_startup_test";
-    lkd::platform::posix::prepare_runtime_directory(directory, uid, gid);
-    const auto pid_path = directory / "lockd.pid";
-    const auto log_path = directory / "lockd.log";
-    const auto executable = ldt::daemon_path();
-    ldt::process::child parent(
-            executable.string(),
-            "--user",
-            std::to_string(uid),
-            "--log-file",
-            log_path.string(),
-            "--pid-file",
-            pid_path.string(),
-            "--port",
-            "0",
-            "--threads",
-            "1",
-            ldt::process::std_out > ldt::process::null
-    );
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (parent.running() && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    const bool exited = !parent.running();
-    if (!exited)
-        parent.terminate();
-    parent.wait();
-    BOOST_REQUIRE_MESSAGE(
-            exited && parent.exit_code() == 0,
-            "The parent reports success after the unprivileged daemon is ready"
-    );
-    std::ifstream pid_file(pid_path);
-    pid_t pid = 0;
-    pid_file >> pid;
-    BOOST_REQUIRE_MESSAGE(pid > 1, "Read the isolated daemon's PID");
+    with_runtime_parent([uid, gid](const auto& root, const int /*parent*/) {
+        BOOST_REQUIRE_EQUAL(chmod(root.c_str(), 0755), 0);
+        const auto directory = root / "runtime";
+        lkd::platform::posix::prepare_runtime_directory(directory, uid, gid);
+        const auto pid_path = directory / "lockd.pid";
+        const auto log_directory = directory / "logs" / "nested";
+        const auto log_path = log_directory / "lockd.log";
+        BOOST_REQUIRE_MESSAGE(
+                !std::filesystem::exists(directory / "logs"), "Log parents start absent"
+        );
+        const auto executable = ldt::daemon_path();
+        ldt::process::child parent(
+                executable.string(),
+                "--user",
+                std::to_string(uid),
+                "--log-file",
+                log_path.string(),
+                "--pid-file",
+                pid_path.string(),
+                "--port",
+                "0",
+                "--threads",
+                "1",
+                ldt::process::std_out > ldt::process::null
+        );
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (parent.running() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool exited = !parent.running();
+        if (!exited)
+            parent.terminate();
+        parent.wait();
+        BOOST_REQUIRE_MESSAGE(
+                exited && parent.exit_code() == 0,
+                "The parent reports success after the unprivileged daemon is ready"
+        );
+        std::ifstream pid_file(pid_path);
+        pid_t pid = 0;
+        pid_file >> pid;
+        BOOST_REQUIRE_MESSAGE(pid > 1, "Read the isolated daemon's PID");
 
-    // Read the kernel identity, rather than file ownership (DrvFS may synthesize ownership).
-    std::ifstream status_file("/proc/" + std::to_string(pid) + "/status");
-    std::string line;
-    bool correct_uid = false, correct_gid = false;
-    while (std::getline(status_file, line)) {
-        std::istringstream fields(line);
-        std::string name;
-        unsigned long real = 0, effective = 0;
-        fields >> name >> real >> effective;
-        if (name == "Uid:")
-            correct_uid = real == uid && effective == uid;
-        if (name == "Gid:")
-            correct_gid = real == gid && effective == gid;
-    }
-    const int stopped = kill(pid, SIGTERM);
-    BOOST_CHECK_MESSAGE(
-            correct_uid && correct_gid, "The daemon uses the selected UID and its primary GID"
-    );
-    BOOST_CHECK_MESSAGE(stopped == 0, "Stop only the daemon launched by this test");
-    const auto shutdown_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (std::filesystem::exists(pid_path) &&
-           std::chrono::steady_clock::now() < shutdown_deadline)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    BOOST_CHECK_MESSAGE(!std::filesystem::exists(pid_path), "Shutdown removes the child PID file");
-    BOOST_CHECK_MESSAGE(std::filesystem::exists(log_path), "The unprivileged daemon opens its log");
-    std::filesystem::remove(log_path);
-    std::filesystem::remove(directory);
+        // Read the kernel identity, rather than file ownership (DrvFS may synthesize ownership).
+        std::ifstream status_file("/proc/" + std::to_string(pid) + "/status");
+        std::string line;
+        bool correct_uid = false, correct_gid = false;
+        while (std::getline(status_file, line)) {
+            std::istringstream fields(line);
+            std::string name;
+            unsigned long real = 0, effective = 0;
+            fields >> name >> real >> effective;
+            if (name == "Uid:")
+                correct_uid = real == uid && effective == uid;
+            if (name == "Gid:")
+                correct_gid = real == gid && effective == gid;
+        }
+        const int stopped = kill(pid, SIGTERM);
+        BOOST_CHECK_MESSAGE(
+                correct_uid && correct_gid, "The daemon uses the selected UID and its primary GID"
+        );
+        BOOST_CHECK_MESSAGE(stopped == 0, "Stop only the daemon launched by this test");
+        const auto shutdown_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::filesystem::exists(pid_path) &&
+               std::chrono::steady_clock::now() < shutdown_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        BOOST_CHECK_MESSAGE(
+                !std::filesystem::exists(pid_path), "Shutdown removes the child PID file"
+        );
+        BOOST_CHECK_MESSAGE(
+                std::filesystem::exists(log_path), "The unprivileged daemon opens its log"
+        );
+        for (const auto& path : {directory / "logs", log_directory, log_path}) {
+            struct stat owned{};
+            BOOST_REQUIRE_EQUAL(stat(path.c_str(), &owned), 0);
+            BOOST_CHECK_EQUAL(owned.st_uid, uid);
+            BOOST_CHECK_EQUAL(owned.st_gid, gid);
+        }
+    });
 }
 #endif
 

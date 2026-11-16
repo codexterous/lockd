@@ -764,9 +764,12 @@ void lkd::platform::win32::service_runner::service_init() const
     try {
         lkd::server server(_interface, _port, _threads, lkd::rr_no_report_running);
         std::exception_ptr failure;
-        std::thread server_thread([&server, &failure] {
+        std::thread server_thread([this, &server, &failure] {
             try {
-                server.run();
+                server.run([this] {
+                    report_service_status(SERVICE_RUNNING, NO_ERROR, 0);
+                    service_event(str(boost::format("Service '%1%' started.") % _serviceName));
+                });
             }
             catch (...) {
                 failure = std::current_exception();
@@ -776,8 +779,6 @@ void lkd::platform::win32::service_runner::service_init() const
 
         // No logging or wait failure may unwind past a joinable worker thread.
         try {
-            report_service_status(SERVICE_RUNNING, NO_ERROR, 0);
-            service_event(str(boost::format("Service '%1%' started.") % _serviceName));
             if (::WaitForSingleObject(_serviceStopEvent, INFINITE) != WAIT_OBJECT_0)
                 throw boost::system::system_error(
                         static_cast<int>(::GetLastError()),

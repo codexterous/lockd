@@ -34,6 +34,7 @@
 #if defined(SIGUSR1) && !defined(WIN32)
 # include <exception>
 #endif
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -218,7 +219,7 @@ void lkd::server::_createNextClient()
 }
 
 
-size_t lkd::server::run()
+size_t lkd::server::run(const std::function<void()>& ready)
 {
     // Asio delivers signals on an I/O worker. Logging, timers and socket operations must not
     // run in a C signal handler, where they are not async-signal-safe.
@@ -229,13 +230,28 @@ size_t lkd::server::run()
 #endif
     _waitForSignal();
 
-    // Create io service threads.
+    // Create every worker before reporting success, but hold event processing until the
+    // callback finishes. POSIX readiness also detaches console output; that process state
+    // must be settled before any worker can log or handle an immediate stop request.
+    std::mutex start_mutex;
+    std::unique_lock<std::mutex> start_lock(start_mutex);
     std::vector<std::thread> threads;
     threads.reserve(_threads);
 
     try {
         for (std::size_t i = 0; i < _threads; ++i)
-            threads.emplace_back([io_service = &_ioService] { io_service->run(); });
+            threads.emplace_back([io_service = &_ioService, &start_mutex] {
+                {
+                    const std::lock_guard<std::mutex> lock(start_mutex);
+                }
+                io_service->run();
+            });
+
+        // A service manager may stop us as soon as startup succeeds. Report readiness only
+        // after signal handling and worker creation, including the background parent's pipe.
+        if (ready)
+            ready();
+        start_lock.unlock();
 
         // If asked, report the server as running. Normally this message would be pretty extraneous,
         // but, it is used so that `lockd_test` knows when we are fully started up and running. Take
@@ -247,9 +263,11 @@ size_t lkd::server::run()
             );
     }
     catch (...) {
-        // A failed worker creation must not destroy joinable threads or leave them running
-        // against a server whose construction/launch is being unwound.
+        // Failed worker creation or startup notification must not destroy joinable threads
+        // or leave them running against a server whose launch is being unwound.
         _ioService.stop();
+        if (start_lock.owns_lock())
+            start_lock.unlock();
         for (auto& thread : threads)
             thread.join();
         throw;
