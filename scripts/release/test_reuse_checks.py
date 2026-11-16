@@ -124,36 +124,68 @@ class ReuseChecksTests(unittest.TestCase):
         self.assertEqual(reusable_run(plan, 'clang-tidy / Windows', '', []), '')
         self.assertEqual(reusable_run(plan, 'unmatched job', '', []), '')
 
-    def test_newer_failed_part_does_not_reuse_older_success(self) -> None:
-        """Inspect every part's newest result, even across partially successful runs."""
+    def test_manual_run_reuses_packages_and_their_dependent_checks(self) -> None:
+        """Manual compatibility checks provide the same commit/version evidence as pushes."""
+        native: str = 'Compatibility Testing - Windows / x86 (opt, static)'
+        service: str = 'Service Testing - Windows / x86'
         with patch.object(
             reuse_checks,
             'api_pages',
             side_effect=[
-                [
-                    {
-                        'workflow_runs': [
-                            self.run_record(id=43, conclusion='failure'),
-                            self.run_record(),
-                        ]
-                    }
-                ],
-                self.artifacts(),
-                [{'jobs': [{'name': 'Windows', 'conclusion': 'failure'}]}],
+                [{'workflow_runs': [self.run_record(event='workflow_dispatch')]}],
                 self.artifacts(),
                 [
                     {
                         'jobs': [
-                            {'name': 'Windows', 'conclusion': 'success'},
-                            {'name': 'Linux', 'conclusion': 'success'},
+                            {'name': name, 'conclusion': 'success'}
+                            for name in (native, service)
                         ]
                     }
                 ],
             ],
         ):
             plan: dict = reuse_checks.reuse_plan('owner/lockd', 'abc123', '1.0.1')
-        self.assertEqual(reusable_run(plan, 'Windows', '', []), '')
-        self.assertEqual(reusable_run(plan, 'Linux', '', []), '42')
+        self.assertEqual(reusable_run(plan, native, 'release_windows_x86', []), '42')
+        self.assertEqual(
+            reusable_run(plan, service, '', plan['dependencies']['windows_x86']), '42'
+        )
+
+    def test_newer_failed_part_does_not_reuse_older_success(self) -> None:
+        """Inspect every part's newest result, even across partially successful runs."""
+        for event in ('push', 'workflow_dispatch'):
+            with (
+                self.subTest(event=event),
+                patch.object(
+                    reuse_checks,
+                    'api_pages',
+                    side_effect=[
+                        [
+                            {
+                                'workflow_runs': [
+                                    self.run_record(
+                                        id=43, conclusion='failure', event=event
+                                    ),
+                                    self.run_record(),
+                                ]
+                            }
+                        ],
+                        self.artifacts(),
+                        [{'jobs': [{'name': 'Windows', 'conclusion': 'failure'}]}],
+                        self.artifacts(),
+                        [
+                            {
+                                'jobs': [
+                                    {'name': 'Windows', 'conclusion': 'success'},
+                                    {'name': 'Linux', 'conclusion': 'success'},
+                                ]
+                            }
+                        ],
+                    ],
+                ),
+            ):
+                plan: dict = reuse_checks.reuse_plan('owner/lockd', 'abc123', '1.0.1')
+            self.assertEqual(reusable_run(plan, 'Windows', '', []), '')
+            self.assertEqual(reusable_run(plan, 'Linux', '', []), '42')
 
     def test_active_runs_block_planning(self) -> None:
         """Queued, running and approval-pending checks must not be duplicated."""
@@ -171,11 +203,18 @@ class ReuseChecksTests(unittest.TestCase):
                 api.assert_called_once()
 
     def test_wrong_commit_fork_or_pull_request_is_not_reuse_evidence(self) -> None:
-        """Only this repository's push checks can establish release reuse."""
+        """Trust only same-commit push or manual checks from this repository."""
         for changes in (
             {'head_sha': 'other'},
             {'event': 'pull_request'},
+            {'event': 'pull_request_target'},
+            {'event': 'workflow_run'},
             {'head_repository': {'full_name': 'fork/lockd'}},
+            {'head_sha': 'other', 'event': 'workflow_dispatch'},
+            {
+                'head_repository': {'full_name': 'fork/lockd'},
+                'event': 'workflow_dispatch',
+            },
         ):
             with (
                 self.subTest(changes=changes),

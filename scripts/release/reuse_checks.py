@@ -1,4 +1,4 @@
-"""Find completed push checks for the exact release commit."""
+"""Find completed compatibility checks for the exact release commit."""
 
 import argparse
 import json
@@ -69,7 +69,9 @@ def reuse_plan(repository: str, commit: str, version: str) -> dict:
     expected: dict[str, str] = packages | linux | windows
     results: dict[str, dict] = {}
     for run in sorted(runs, key=lambda item: item['id'], reverse=True):
-        if run['event'] != 'push':
+        # Manual runs recover the same assigned version and produce the same evidence.
+        # Pull-request and other event types must not supply release artifacts.
+        if run['event'] not in ('push', 'workflow_dispatch'):
             continue
         run_id: str = str(run['id'])
         pages: list[dict] = api_pages(
