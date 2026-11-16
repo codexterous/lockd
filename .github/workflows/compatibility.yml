@@ -148,7 +148,9 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: tested_python
-          path: output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+          path: |
+            output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+            output/${{ env.OUTPUT_ARCH }}/opt/static/pylockd-*.tar.gz
           retention-days: 14
           if-no-files-found: error
 

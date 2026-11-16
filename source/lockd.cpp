@@ -138,9 +138,9 @@ int main(int argc, const char* const argv[])
             );
 
             allowed_options.add_options()(
-                    "interface,i",
+                    "host,i",
                     po::value<std::string>(&listen_ip)->default_value(listen_ip),
-                    "interface to listen on: IPv4/IPv6 address or hostname (first resolved "
+                    "host to listen on: IPv4/IPv6 address or hostname (first resolved "
                     "address)")(
                     "port,p",
                     po::value<int>(&port)->default_value(port),

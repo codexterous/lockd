@@ -294,7 +294,7 @@ class PackageTests(unittest.TestCase):
         (destination / '.gitkeep').touch()
         with self.assertRaises(ValueError):
             package.checksums(destination, '1.2.3', '4.5.6')
-        names = ['lockd-1.2.3.tar.gz']
+        names = ['lockd-1.2.3.tar.gz', 'pylockd-4.5.6.tar.gz']
         for arch in ('x86', 'x86_64', 'arm64'):
             names.extend(
                 (

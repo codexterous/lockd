@@ -163,7 +163,7 @@ BOOST_AUTO_TEST_CASE(daemon_help_and_validation_preserve_unicode_paths)
     for (const auto& arguments :
          {std::vector<std::wstring>{L"--help"},
           std::vector<std::wstring>{
-                  L"--interface",
+                  L"--host",
                   L"127.0.0.1",
                   L"--log-file",
                   L"missing_\u798f\\log_\u00e9_\U0001F512.log"
@@ -322,7 +322,7 @@ BOOST_AUTO_TEST_CASE(service_elevation_arguments_round_trip_through_windows_pars
             L"backslashes\\\\\"before quote",
             L"&|<>^%",
             L"service-\u03bb-\u4e2d",
-            L"--interface",
+            L"--host",
             L"127.0.0.1",
             L"--port",
             L"7198"
@@ -512,17 +512,15 @@ BOOST_AUTO_TEST_CASE(service_installation_preserves_requested_interface_text)
     for (const std::string requested : {"localhost", "LoCaLhOsT", "0:0:0:0:0:0:0:1"}) {
         std::string listen_ip;
         po::options_description options("Interface options");
-        options.add_options()("interface,i", po::value<std::string>(&listen_ip));
+        options.add_options()("host,i", po::value<std::string>(&listen_ip));
         po::variables_map values;
-        po::store(
-                po::command_line_parser({"--interface", requested}).options(options).run(), values
-        );
+        po::store(po::command_line_parser({"--host", requested}).options(options).run(), values);
         po::notify(values);
         listen_ip = lkd::server::resolve_interface(listen_ip).to_string();
         BOOST_REQUIRE_MESSAGE(
                 listen_ip != requested, "The binding address differs from the requested spelling"
         );
-        const auto& configured = values["interface"].as<std::string>();
+        const auto& configured = values["host"].as<std::string>();
         BOOST_CHECK_MESSAGE(configured == requested, "Resolution preserves the parsed option");
         const auto description = lkd::platform::win32::service_installer::description(
                 configured, 7198, 2, lkd::ll_info, false

@@ -23,7 +23,7 @@ options are:
 
 | Option              | Meaning                                                               |
 |---------------------|-----------------------------------------------------------------------|
-| `--interface`, `-i` | Local IPv4/IPv6 address or hostname; default `localhost`              |
+| `--host`, `-i`      | Local IPv4/IPv6 address or hostname; default `localhost`              |
 | `--port`, `-p`      | TCP listening port; default 7198                                      |
 | `--threads`, `-t`   | Worker count; defaults to hardware threads, capped at 8; 1 if unknown |
 | `--log-level`, `-l` | Minimum severity; default `info`                                      |
@@ -39,9 +39,9 @@ operating system choose an available port.
 Automatic selection preserves smaller hardware-thread counts, such as four or six. An explicit
 `--threads` value overrides the automatic cap and may exceed eight.
 
-The daemon and `lockd_test` accept an IPv4 address, IPv6 address, or hostname for `--interface`
-(`-i`), defaulting to `localhost`. For example, use `lockd -i localhost` or
-`lockd_test -- -i localhost`. Hostnames resolve at startup, and the daemon listens on the first
+The daemon and `lockd_test` accept an IPv4 address, IPv6 address, or hostname for `--host` (`-i`),
+defaulting to `localhost`. For example, use `lockd --host localhost` or
+`lockd_test -- --host localhost`. Hostnames resolve at startup, and the daemon listens on the first
 returned address, which may be IPv6 (`::1`) for `localhost`.
 
 ## Logging

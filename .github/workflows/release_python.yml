@@ -141,7 +141,9 @@ jobs:
         with:
           name: release_linux_${{ matrix.arch }}_${{ matrix.python }}
           retention-days: 14
-          path: ${{ env.BUILD_ROOT }}/lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+          path: |
+            ${{ env.BUILD_ROOT }}/lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static/*.whl
+            ${{ env.BUILD_ROOT }}/lib/pylockd/output/${{ env.OUTPUT_ARCH }}/opt/static/pylockd-*.tar.gz
           if-no-files-found: error
       - name: Preserve Linux wheel diagnostics
         if: steps.reuse.outputs.reused != 'true' && (failure())

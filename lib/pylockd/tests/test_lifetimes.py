@@ -337,7 +337,7 @@ class InstalledWheelTests(unittest.TestCase):
         executable: str = os.environ['LOCKD_TEST_DAEMON']
         command: list[str] = [
             executable,
-            '--interface',
+            '--host',
             '127.0.0.1',
             '--port',
             str(cls.port),

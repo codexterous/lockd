@@ -180,8 +180,14 @@ BOOST_AUTO_TEST_CASE(benchmark_help_bypasses_normal_tests_and_rejects_test_optio
         );
     }
     for (const std::string mode : {"--benchmark-test", "-B"}) {
-        const auto [status, output] = benchmark_child({"--", mode, "--help"});
+        const auto [status, output] =
+                benchmark_child({"--", mode, "--host", "localhost", "--help"});
         BOOST_CHECK_MESSAGE(status == 0, "Dedicated help succeeds: " << output);
+        BOOST_CHECK_MESSAGE(
+                output.find("--host") != std::string::npos &&
+                        output.find("--interface") == std::string::npos,
+                "Benchmark help advertises the same host option as the daemon"
+        );
         BOOST_CHECK_MESSAGE(
                 output.find("Benchmark options") != std::string::npos,
                 "Dedicated help describes load generation"
@@ -201,6 +207,7 @@ BOOST_AUTO_TEST_CASE(benchmark_help_bypasses_normal_tests_and_rejects_test_optio
           {"-B", "--help"},
           {"--", "--bench"},
           {"--", "-B", "--lockd-path=unused"},
+          {"--", "-B", "--interface=localhost", "--help"},
           {"--", "-B", "--", "--help"},
           {"--", "-B", "--log_level=all"},
           {"--", "-B", "-p", "0"},

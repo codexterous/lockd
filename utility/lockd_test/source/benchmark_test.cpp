@@ -105,7 +105,7 @@ std::optional<int> ldt::benchmark_test(const int argc, const char* const* const 
         allowed.add_options()
                 ("benchmark-test,B", "load an existing daemon; never run normal tests")
                 ("help,h", "show benchmark options and exit")
-                ("interface,i", po::value<std::string>(&options.interface)->default_value(options.interface),
+                ("host,i", po::value<std::string>(&options.interface)->default_value(options.interface),
                  "daemon IPv4/IPv6 address or hostname")
                 ("port,p", po::value<int>(&port)->default_value(port), "daemon TCP port")
                 ("threads,t", po::value<int>(&threads)->default_value(threads), "client worker threads")

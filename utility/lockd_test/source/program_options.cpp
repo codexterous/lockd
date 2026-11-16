@@ -132,7 +132,7 @@ bool program_options_fixture::_parseOptions(const int argc, const char* const* c
     allowed_options.add_options()(
             "help,h", "produce lockd_test specific help message and exit")(
             "benchmark-test,B", "load an existing daemon instead of running tests; use -- -B --help")(
-            "interface,i",
+            "host,i",
             po::value<std::string>(&_interface)->default_value(_interface),
             str(boost::format("IPv4/IPv6 address or hostname for %1% to listen on") %
                 std::string(LOCKD_LOCKD_OUTPUT_NAME))

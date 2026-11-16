@@ -129,7 +129,7 @@ void check_startup_failure(
         environment["LOCKD_TEST_FAIL"] = operation;
         const std::vector<std::string> arguments{
                 drop_privileges ? "--no-fork" : "--no-drop",
-                "--interface",
+                "--host",
                 "127.0.0.1",
                 "--port",
                 "0",
@@ -234,7 +234,7 @@ BOOST_AUTO_TEST_CASE(
                 std::to_string(uid),
                 "--group",
                 std::to_string(gid),
-                "--interface",
+                "--host",
                 "127.0.0.1",
                 "--port",
                 std::to_string(endpoint.port()),
@@ -348,7 +348,7 @@ BOOST_AUTO_TEST_CASE(usr1_reopens_logs_and_preserves_locks_in_both_rotation_mode
                         std::vector<std::string>{
                                 "--no-fork",
                                 "--no-drop",
-                                "--interface",
+                                "--host",
                                 "127.0.0.1",
                                 "--port",
                                 std::to_string(endpoint.port()),

@@ -438,7 +438,7 @@ try {
             # The daemon owns the SCM command and description, including defaults such as
             # the resolved worker count. Pass values separately so paths with spaces survive.
             $installArguments = @('--install-service', '--service-name', $serviceName,
-                '--interface', $settings.Address, '--port', $settings.Port,
+                '--host', $settings.Address, '--port', $settings.Port,
                 '--log-level', $settings.Level, '--log-file', $settings.Log)
             if ($settings.Threads) { $installArguments += @('--threads', $settings.Threads) }
             if ($settings.EventLog -eq '0') { $installArguments += '--no-event-log' }

@@ -213,6 +213,7 @@ def checksums(destination: Path, version: str, python_version: str) -> None:
         expected.add(f'lockd-{version}-windows-{architecture}-portable.zip')
         expected.add(f'lockd-{version}-windows-{architecture}-setup.exe')
     wheel_name: str = python_wheel_name()
+    expected.add(f'{wheel_name}-{python_version}.tar.gz')
     for supported in PYTHON_VERSIONS:
         tag: str = 'cp' + supported.replace('.', '')
         for platform in WINDOWS_WHEEL_PLATFORMS.values():

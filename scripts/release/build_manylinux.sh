@@ -14,3 +14,9 @@ esac
 export PIP_CACHE_DIR="/src/output/obj/$arch/opt/shared/dependencies/python/pip-cache"
 
 python scripts/release/build_linux_wheel.py --manylinux "$WHEEL_ARCH"
+
+# One matrix job supplies the platform-independent source distribution for publication.
+if [ "$WHEEL_ARCH" = x86_64 ] && [ "$PYTHON_VERSION" = 3.14 ]; then
+    "output/obj/$arch/opt/shared/python-release/$tag/build_env/bin/python" -m build \
+        --sdist --no-isolation --outdir "lib/pylockd/output/$arch/opt/static"
+fi

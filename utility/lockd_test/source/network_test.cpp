@@ -336,7 +336,7 @@ BOOST_FIXTURE_TEST_CASE(protocol_runs_unwind_the_framework_without_leaks, ldt::n
                 "--color_output=no",
                 "--detect_memory_leaks=1",
                 "--",
-                "--interface",
+                "--host",
                 "127.0.0.1",
                 "--port",
                 std::to_string(endpoint.port()),

@@ -227,7 +227,7 @@ std::optional<int> lkd::platform::win32::startup::prepare(
         return lkd::platform::win32::manage_service(
                 install,
                 _serviceName,
-                options["interface"].as<std::string>(),
+                options["host"].as<std::string>(),
                 port,
                 threads,
                 log_level,

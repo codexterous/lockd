@@ -1189,7 +1189,7 @@ class ConfigurationTests(BenchmarkTest):
         The controller owns host, port and result paths; invalid load cannot create VMs.
         """
         for arguments in (
-            ['--interface=127.0.0.1'],
+            ['--host=127.0.0.1'],
             ['--results=/etc/passwd'],
             ['--port=1'],
             ['--dur=1'],

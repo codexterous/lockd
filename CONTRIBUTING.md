@@ -203,9 +203,10 @@ same commit's branch. Release reuses successful checks and tested artifacts for 
 assigned version. Missing or expired checks run before publication.
 
 **Publish wheels to PyPI** uploads the validated `tested_python` artifact after release assembly and
-Windows signing succeed. This includes all 30 wheels: CPython 3.11 through 3.15 for Windows and
-manylinux, each on x86, x86_64, and ARM64. The publishing job downloads those files without
-rebuilding or renaming them. Ordinary compatibility runs never publish to an index.
+Windows signing succeed. This includes the source distribution and all 30 wheels: CPython 3.11
+through 3.15 for Windows and manylinux, each on x86, x86_64, and ARM64. The Linux x86_64 Python 3.14
+job also builds the source distribution for publication. The publishing job downloads those files
+without rebuilding or renaming them. Ordinary compatibility runs never publish to an index.
 
 The repository Actions secret `PYPI_API_TOKEN` must contain an API token issued by the configured
 package index with permission to publish `pylockd`. The upload URL is configured in the Release
@@ -215,8 +216,8 @@ publishing instructions](https://docs.pypi.org/publishing/publishing-to-pypi/).
 
 The distribution name comes from `pyproject.toml`; the extension is imported as `pylockd`. PyPI
 keeps uploaded filenames immutable. Retrying a partially completed publishing job skips existing
-files and uploads the remaining wheels. To publish changed files, push a new commit and use its
-newly assigned version. GitHub release publication remains a separate job in Release.
+files and uploads the remaining distributions. To publish changed files, push a new commit and use
+its newly assigned version. GitHub release publication remains a separate job in Release.
 
 ## Clang-tidy
 

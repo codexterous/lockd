@@ -189,6 +189,15 @@ foreach(value IN ITEMS "    name: Publish wheels to PyPI\n" "name: Check PyPI cr
         "attestations: false" "skip-existing: true")
     lockd_test_contains("${pypi}" "${value}")
 endforeach ()
+foreach(caller IN ITEMS compatibility release)
+    lockd_test_contains("${block_${caller}_tested_python}"
+            "output/\${{ env.OUTPUT_ARCH }}/opt/static/pylockd-*.tar.gz")
+endforeach ()
+file(READ "${LOCKD_TEST_SOURCE}/scripts/release/build_manylinux.sh" manylinux_builder)
+lockd_test_contains("${manylinux_builder}"
+        "if [ \"$WHEEL_ARCH\" = x86_64 ] && [ \"$PYTHON_VERSION\" = 3.14 ]; then")
+lockd_test_contains("${manylinux_builder}"
+        "--sdist --no-isolation --outdir \"lib/pylockd/output/$arch/opt/static\"")
 require_set("${parents_release_publish_python}" "source;assemble;sign_windows")
 condition("${pypi}" pypi_condition)
 lockd_test_equal("${pypi_condition}" "${publication_condition}")

@@ -69,7 +69,7 @@ endif ()
 # Only the protocol fixture needs a fixed port; the other groups use ephemeral loopback ports.
 add_test(NAME lockd_protocol
         COMMAND lockd_test --run_test=protocol --report_level=short --
-        --interface 127.0.0.1 --threads 2
+        --host 127.0.0.1 --threads 2
         --lockd-path "$<TARGET_FILE:lockd>")
 add_test(NAME lockd_lifetimes COMMAND lockd_test --run_test=lifetimes --report_level=short)
 add_test(NAME lockd_dll COMMAND lockd_test --run_test=dll --report_level=short)

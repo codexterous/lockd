@@ -574,7 +574,7 @@ BOOST_AUTO_TEST_CASE(startup_banner_and_errors_are_complete_separate_lines)
     const std::vector<std::vector<std::string>> scenarios = {
             {"--version"},
             {"--unknown-lockd-option"},
-            {"--interface",
+            {"--host",
              "invalid address",
              "--log-file",
              log_file.string()
@@ -765,6 +765,47 @@ BOOST_AUTO_TEST_CASE(network_option_boundaries_are_accepted_without_starting_wor
                  {"--port", "65535", "--threads", "65535", "--help"}
          })
         check_options_child(ldt::daemon_path().string(), arguments, true, "Usage:");
+}
+
+
+BOOST_AUTO_TEST_CASE(host_option_is_shared_by_daemon_and_test_runner)
+{
+    // Exercise the real parsers without starting a server. Both programs must advertise
+    // --host, accept address and hostname values, and reject the removed --interface name.
+    for (const bool runner : {false, true}) {
+        const std::string executable =
+                runner ? ldt::master_test_suite_argv()[0] : ldt::daemon_path().string();
+        for (const auto& values : std::vector<std::vector<std::string>>{
+                     {"--host", "127.0.0.1"},
+                     {"--host=::1"},
+                     {"--host", "localhost"},
+                     {"-i", "127.0.0.1"}
+             }) {
+            std::vector<std::string> arguments;
+            if (runner)
+                arguments.emplace_back("--");
+            arguments.insert(arguments.end(), values.begin(), values.end());
+            arguments.emplace_back("--help");
+            const auto help = check_options_child(executable, arguments, true, "--host");
+            BOOST_CHECK_MESSAGE(
+                    help.find("--interface") == std::string::npos,
+                    "Help uses the host option consistently"
+            );
+            BOOST_CHECK_MESSAGE(
+                    help.find("(=localhost)") != std::string::npos,
+                    "The default listen host remains localhost"
+            );
+        }
+        for (const auto& values : std::vector<std::vector<std::string>>{
+                     {"--interface", "127.0.0.1", "--help"}, {"--host"}
+             }) {
+            std::vector<std::string> arguments;
+            if (runner)
+                arguments.emplace_back("--");
+            arguments.insert(arguments.end(), values.begin(), values.end());
+            check_options_child(executable, arguments, false, "invalid program options:");
+        }
+    }
 }
 
 

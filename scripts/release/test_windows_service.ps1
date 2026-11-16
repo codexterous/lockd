@@ -79,7 +79,7 @@ try {
         throw 'Console help did not retain the working-directory log default.'
     }
 
-    Run-Daemon 'install' ("--install-service --service-name $serviceName --interface 127.0.0.1 " +
+    Run-Daemon 'install' ("--install-service --service-name $serviceName --host 127.0.0.1 " +
         "--port $port --threads 2 --log-level debug --log-file `"$log`" --no-event-log") 0
     $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if (!$service -or $service.PathName -ne $expectedCommand -or

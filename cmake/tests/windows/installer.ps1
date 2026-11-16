@@ -99,7 +99,7 @@ foreach ($case in $cases) {
     }
     if ($invoked) {
         $arguments = @('--install-service', '--service-name', $settings.Name,
-            '--interface', $settings.Address, '--port', $settings.Port,
+            '--host', $settings.Address, '--port', $settings.Port,
             '--log-level', $settings.Level, '--log-file', $settings.Log)
         if ($settings.Threads) { $arguments += @('--threads', $settings.Threads) }
         if ($settings.EventLog -eq '0') { $arguments += '--no-event-log' }

@@ -123,6 +123,8 @@ class OutputLayoutTests(unittest.TestCase):
                 wheel = build_linux_wheel.build_wheel(prefix, '3.14')
             self.assertTrue(wheel.is_relative_to(root / 'output/obj'))
             arguments = command.call_args.args
+            self.assertIn('--wheel', arguments)
+            self.assertNotIn('--sdist-extract-dir', arguments)
             self.assertIn(
                 '-Cbuild-dir=lib/pylockd/output/obj/{wheel_tag}/opt/static/release',
                 arguments,
@@ -132,14 +134,25 @@ class OutputLayoutTests(unittest.TestCase):
             )
 
     def test_wheel_uploads_keep_architecture_out_of_the_wildcard(self) -> None:
-        """Artifact uploads must stay flat so package collection receives wheel files."""
+        """Package globs must share a flat parent, including the retained sdist."""
         for name in ('release_python.yml', 'release_python_windows.yml'):
             text = (package.ROOT / '.github/workflows' / name).read_text()
             paths = [
                 line.strip().removeprefix('path: ')
                 for line in text.splitlines()
-                if 'path:' in line and line.endswith('/*.whl')
+                if line.endswith(('/*.whl', '/pylockd-*.tar.gz'))
             ]
-            self.assertEqual(len(paths), 1, name)
-            self.assertEqual(paths[0].count('*'), 1, paths[0])
-            self.assertIn('/lib/pylockd/output/', paths[0])
+            patterns: list[str] = ['*.whl']
+            if name == 'release_python.yml':
+                patterns.append('pylockd-*.tar.gz')
+            architecture: str = (
+                '${{ env.OUTPUT_ARCH }}'
+                if name == 'release_python.yml'
+                else '${{ matrix.arch }}'
+            )
+            parent: str = (
+                '${{ env.BUILD_ROOT }}/lib/pylockd/output/'
+                + architecture
+                + '/opt/static'
+            )
+            self.assertEqual(paths, [f'{parent}/{pattern}' for pattern in patterns])
