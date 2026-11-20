@@ -43,7 +43,7 @@ make install clean
 
 `make showconfig` displays selected options. See [Port options and tests](#port-options-and-tests)
 for option details and Python version selection. Installation registers the package with `pkg` and
-creates the `lockd_daemon` user and group for the service.
+creates the `distlockd` user and group for the service.
 
 The default SDK installs headers under `/usr/local/include/liblockd/` and
 `/usr/local/include/liblockd_dll/`, libraries under `/usr/local/lib/`, and CMake package files under
@@ -56,39 +56,37 @@ The default SDK installs headers under `/usr/local/include/liblockd/` and
 Installation does not enable or start the service. Enable it at boot and start it now:
 
 ```sh
-sysrc lockd_daemon_enable=YES
-service lockd_daemon start
+sysrc distlockd_enable=YES
+service distlockd start
 ```
 
-Check its status with `service lockd_daemon status`. After changing settings in `/etc/rc.conf`,
-apply them with `service lockd_daemon restart`; use `service lockd_daemon stop` to stop it.
+Check its status with `service distlockd status`. After changing settings in `/etc/rc.conf`,
+apply them with `service distlockd restart`; use `service distlockd stop` to stop it.
 
 These are the service defaults, which can be overridden in `/etc/rc.conf`:
 
 ```sh
-lockd_daemon_interface="localhost"
-lockd_daemon_port="7198"
-lockd_daemon_log_level="info"
-lockd_daemon_user="lockd_daemon"
-lockd_daemon_group="lockd_daemon"
-lockd_daemon_pidfile="/var/run/lockd_daemon/lockd.pid"
-lockd_daemon_logfile="/var/log/lockd_daemon/lockd.log"
-lockd_daemon_flags=""
+distlockd_interface="localhost"
+distlockd_port="7198"
+distlockd_log_level="info"
+distlockd_user="distlockd"
+distlockd_group="distlockd"
+distlockd_pidfile="/var/run/distlockd/lockd.pid"
+distlockd_logfile="/var/log/distlockd/lockd.log"
+distlockd_flags=""
 ```
 
-Use `lockd_daemon_flags` for additional daemon options, without repeating those managed by the
-settings above. For example, `lockd_daemon_flags="--threads 4"` selects four worker threads. Without
+Use `distlockd_flags` for additional daemon options, without repeating those managed by the
+settings above. For example, `distlockd_flags="--threads 4"` selects four worker threads. Without
 an explicit count, the daemon uses the available hardware threads, capped at eight, or one if the
 count is unknown. See [RUNNING.md](RUNNING.md) for logging and other daemon options.
 
-The daemon starts as root, prepares its files, and drops privileges to the configured user and
-group. The startup script creates the default log directory with mode 0750 and the configured
-ownership if it is absent; lockd prepares the PID directory itself. Prepare custom log directories
-and their permissions before starting the service. When changing accounts, update existing directory
-ownership as needed.
+The daemon starts as root, prepares its runtime paths, creates missing log directories, and drops
+privileges to the configured user and group. Existing directories retain their ownership and
+permissions. When changing accounts, update existing directory ownership as needed.
 
 The default listener accepts only local connections. To allow remote clients, set
-`lockd_daemon_interface` to the appropriate local address and permit the chosen TCP port through the
+`distlockd_interface` to the appropriate local address and permit the chosen TCP port through the
 firewall for trusted clients. Deployment requirements are described in [SECURITY.md](SECURITY.md).
 
 ## Port options and tests
@@ -191,8 +189,8 @@ ports build, update through the same ports workflow with its selected options an
 To remove the daemon package, stop and disable its service first:
 
 ```sh
-service lockd_daemon stop
-sysrc lockd_daemon_enable=NO
+service distlockd stop
+sysrc distlockd_enable=NO
 pkg delete lockd
 ```
 
@@ -255,15 +253,15 @@ state-change hooks.
 Add the same service settings to `/etc/rc.conf` on both:
 
 ```sh
-lockd_daemon_enable="YES"
-lockd_daemon_interface="192.168.50.10"
-lockd_daemon_port="7198"
+distlockd_enable="YES"
+distlockd_interface="192.168.50.10"
+distlockd_port="7198"
 ```
 
 Configure the CARP address before starting either daemon, including on the backup. Binding
 specifically to the shared IP keeps clients from reaching independent lock tables through the hosts'
 management addresses. Apply the network changes through a console or a planned reboot, then start or
-restart `lockd_daemon` on both hosts.
+restart `distlockd` on both hosts.
 
 On each host, inspect `ifconfig em0`: one should report `MASTER` for VHID 42 and the other `BACKUP`.
 From a separate client machine, check the shared listener:

@@ -105,11 +105,11 @@ logrotate runs; use a more frequent schedule if needed. See [logrotate (8)][logr
 
 #### FreeBSD
 
-For the FreeBSD port, add `--log-rotate-size=0` to `lockd_daemon_flags` in `/etc/rc.conf`. With the
+For the FreeBSD port, add `--log-rotate-size=0` to `distlockd_flags` in `/etc/rc.conf`. With the
 port's default paths and account, add this entry to `/usr/local/etc/newsyslog.conf.d/lockd.conf`:
 
 ```text
-/var/log/lockd_daemon/lockd.log lockd_daemon: 640 5 10M * B /var/run/lockd_daemon/lockd.pid SIGUSR1
+/var/log/distlockd/lockd.log distlockd: 640 5 10M * B /var/run/distlockd/lockd.pid SIGUSR1
 ```
 
 The system's scheduled newsyslog run handles rotation. See [newsyslog.conf (5)][newsyslog] for
